@@ -135,6 +135,7 @@
       .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
       .btn:active { transform: translateY(1px); }
       .btn:disabled { opacity: .5; cursor: default; }
+      .btn.recording { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
       .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
       @media (max-width: 560px) { .stats { grid-template-columns: repeat(2, 1fr); } }
@@ -249,12 +250,14 @@
               <button type="button" class="btn" id="btnStep">+10 generations</button>
               <button type="button" class="btn" id="btnRestart">Restart</button>
               <button type="button" class="btn" id="btnDownload">Download PNG</button>
+              <button type="button" class="btn" id="btnTimelapse">Record timelapse</button>
             </div>
             <div class="ctl">
               <label for="maxStrokes">Genome size (max strokes) <output id="maxStrokesOut">480</output></label>
               <input type="range" id="maxStrokes" min="100" max="800" step="20" value="480" />
             </div>
             <p class="hint mono" id="evoStatus" aria-live="polite" style="margin-top:8px"></p>
+            <p class="hint mono" id="tlStatus" aria-live="polite" style="margin-top:4px"></p>
           </div>
         </div>
       </div>
@@ -437,6 +440,26 @@
     };
     var brushReady = false;
     var evalMs = 0;               // rolling average cost of one p5.brush fitness render
+
+    /* ---------------- timelapse recording ----------------
+       One control, fixed settings: while recording, a frame of
+       the rendered painting is saved every TL_FRAME_EVERY
+       generations. Recording stops on its own after
+       TL_STOP_STAGNANT consecutive generations with no meaningful
+       gain in the best score (the same MEANINGFUL_GAIN threshold
+       stagnation detection uses — tracked on its own counter,
+       because growth events reset the growth clock but shouldn't
+       reset this one), or at TL_MAX_GEN generations as a safety
+       cap. It can also be stopped early by hand. On stop, the
+       frames are assembled into a WebM at TL_FPS in the browser
+       and downloaded. */
+    var TL_FRAME_EVERY = 25;
+    var TL_STOP_STAGNANT = 300;
+    var TL_MAX_GEN = 10000;
+    var TL_FPS = 12;
+    var TL_SIZE = 512;
+    var tl = { recording: false, assembling: false, frames: [], stagnantGens: 0 };
+    var tlCanvas = document.createElement('canvas'); tlCanvas.width = TL_SIZE; tlCanvas.height = TL_SIZE;
 
     /* ---------------- target sampling ---------------- */
     var sampleCanvas = document.createElement('canvas'); sampleCanvas.width = SAMPLE; sampleCanvas.height = SAMPLE;
@@ -1031,6 +1054,16 @@
       // generation from 0, not a sliding window. (Guard only against
       // unbounded memory on extremely long runs.)
       if (state.history.length > 20000) state.history.splice(0, state.history.length - 20000);
+      // Timelapse: track stagnation on the recording's own counter
+      // (best score at the end of this generation vs the start of
+      // it, so a gain from a growth event counts too), save a
+      // frame on cadence, and stop on full stagnation or the cap.
+      if (tl.recording) {
+        if (prevScore - state.bestScore >= MEANINGFUL_GAIN) tl.stagnantGens = 0;
+        else tl.stagnantGens++;
+        if (state.gen % TL_FRAME_EVERY === 0) captureTlFrame();
+        if (tl.stagnantGens >= TL_STOP_STAGNANT || state.gen >= TL_MAX_GEN) stopTimelapse(true);
+      }
     }
     function pushSnapshot() {
       state.snapshots.push({ genome: cloneGenome(state.best), score: state.bestScore, gen: state.gen });
@@ -1121,6 +1154,128 @@
       displayDirty = true;
     }
 
+    /* ---------------- timelapse: capture, stop, assemble ---------------- */
+    function setTlStatus(msg) {
+      var s = el('tlStatus');
+      if (s) s.textContent = msg;
+    }
+    function updateTlUI() {
+      var b = el('btnTimelapse'); if (!b) return;
+      if (tl.assembling) { b.textContent = 'Making video…'; b.disabled = true; b.classList.remove('recording'); }
+      else if (tl.recording) { b.textContent = 'Stop & make video'; b.disabled = false; b.classList.add('recording'); }
+      else { b.textContent = 'Record timelapse'; b.disabled = false; b.classList.remove('recording'); }
+    }
+    function captureTlFrame() {
+      // Paint the current champion through the same p5.brush code
+      // as every other render, onto the timelapse canvas, and keep
+      // the pixels as a JPEG blob (opaque paper background, so no
+      // alpha is lost). Safe to call from stepGeneration: no
+      // display render job is running while generations step.
+      if (!state.best) return;
+      var idx = tl.frames.length;
+      tl.frames.push(null);
+      try {
+        renderWithBrush(state.best, tlCanvas, TL_SIZE, resolveBrushName());
+      } catch (err) { return; }
+      tlCanvas.toBlob(function (blob) { if (blob) tl.frames[idx] = blob; }, 'image/jpeg', 0.85);
+    }
+    function startTimelapse() {
+      if (!brushReady || tl.assembling) return;
+      restart();   // fresh run from generation 0 (also cancels any recording already in progress)
+      tl.frames = []; tl.stagnantGens = 0; tl.recording = true;
+      state.playing = true;
+      el('btnPlay').textContent = 'Pause';
+      // restart() leaves a display render in flight — land it
+      // before painting the generation-0 frame, then re-render.
+      cancelDisplayRender();
+      captureTlFrame();
+      displayDirty = true;
+      startDisplayRender();
+      updateTlUI();
+      updateStats();
+    }
+    function stopTimelapse(makeVideo) {
+      if (!tl.recording) return;
+      tl.recording = false;
+      var frames = [];
+      for (var i = 0; i < tl.frames.length; i++) if (tl.frames[i]) frames.push(tl.frames[i]);
+      tl.frames = [];
+      updateTlUI();
+      if (!makeVideo) return;
+      if (!frames.length) { setTlStatus('Timelapse stopped before any frame was captured — no video to make.'); return; }
+      assembleTimelapse(frames);
+    }
+    function tlMimeType() {
+      var candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      for (var i = 0; i < candidates.length; i++) {
+        try { if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i]; } catch (err) { /* keep looking */ }
+      }
+      return '';
+    }
+    function assembleTimelapse(frames) {
+      var vc = document.createElement('canvas'); vc.width = TL_SIZE; vc.height = TL_SIZE;
+      if (typeof MediaRecorder === 'undefined' || !vc.captureStream) {
+        setTlStatus('This browser can\'t assemble a video (MediaRecorder unavailable), so the ' + frames.length + ' captured frames were discarded.');
+        return;
+      }
+      tl.assembling = true;
+      updateTlUI();
+      // Pause evolution while the video is assembled, so the
+      // recorder's frame pacing isn't fighting p5.brush renders.
+      state.playing = false;
+      el('btnPlay').textContent = 'Evolve';
+      var vctx = vc.getContext('2d');
+      vctx.fillStyle = PAPER_HEX; vctx.fillRect(0, 0, TL_SIZE, TL_SIZE);
+      var stream = vc.captureStream(0);
+      var track = stream.getVideoTracks()[0];
+      var mime = tlMimeType();
+      var rec;
+      try {
+        rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8000000 } : { videoBitsPerSecond: 8000000 });
+      } catch (err) {
+        tl.assembling = false;
+        updateTlUI();
+        setTlStatus('This browser refused to start a video recording — the captured frames were discarded.');
+        return;
+      }
+      var chunks = [];
+      rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = function () {
+        var blob = new Blob(chunks, { type: mime || 'video/webm' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'genetic-painting-timelapse.webm';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+        tl.assembling = false;
+        updateTlUI();
+        setTlStatus('Timelapse saved — ' + frames.length + ' frames at ' + TL_FPS + ' fps, about ' +
+          Math.max(1, Math.round(frames.length / TL_FPS)) + ' seconds of video. Press Evolve to keep painting.');
+      };
+      var i = 0, started = false;
+      setTlStatus('Assembling timelapse video — frame 0 of ' + frames.length + '…');
+      (function drawNext() {
+        if (i >= frames.length) {
+          // hold the final painting briefly so it registers as a frame
+          setTimeout(function () { try { rec.stop(); } catch (err) { /* already stopped */ } }, 160);
+          return;
+        }
+        var url = URL.createObjectURL(frames[i]);
+        var img = new Image();
+        img.onload = function () {
+          vctx.drawImage(img, 0, 0, TL_SIZE, TL_SIZE);
+          URL.revokeObjectURL(url);
+          if (!started) { rec.start(200); started = true; }
+          if (track && track.requestFrame) track.requestFrame();
+          i++;
+          setTlStatus('Assembling timelapse video — frame ' + i + ' of ' + frames.length + '…');
+          setTimeout(drawNext, 1000 / TL_FPS);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); i++; drawNext(); };
+        img.src = url;
+      })();
+    }
+
     /* ---------------- UI: stats, chart ---------------- */
     function setEvoStatus(msg) {
       var s = el('evoStatus');
@@ -1136,6 +1291,9 @@
         populationDiversity().toFixed(2) + ' · p5.brush fitness render ' + EVAL + 'px, scored at ' + SCORE + 'px · ~' +
         (evalMs ? Math.round(evalMs) : '—') + ' ms per candidate · display shows gen ' +
         (state.displayedGen >= 0 ? state.displayedGen.toLocaleString() : '—'));
+      if (tl.recording) setTlStatus('● Recording timelapse — ' + tl.frames.length + ' frames saved · generation ' +
+        state.gen.toLocaleString() + ' · ' + tl.stagnantGens + ' of ' + TL_STOP_STAGNANT +
+        ' generations without a meaningful gain before it stops itself');
       drawChart();
     }
     function drawChart() {
@@ -1262,6 +1420,14 @@
     function restart() {
       if (!brushReady) return;
       cancelDisplayRender();
+      if (tl.recording) {
+        // A fresh run ends any recording in progress — its frames
+        // belong to the old run, so they're discarded, not made
+        // into a video.
+        tl.recording = false; tl.frames = [];
+        updateTlUI();
+        setTlStatus('Timelapse recording stopped — the run was restarted before the video was made.');
+      }
       state.gen = 0; state.history = []; state.snapshots = []; state.lastSnapGen = -100;
       state.stagnantGens = 0; state.lastGrowthGen = -1000; state.growthSpurts = 0;
       state.growthAdded = 0;
@@ -1377,6 +1543,11 @@
           setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
         }, 'image/png');
       }, 30);
+    });
+    el('btnTimelapse').addEventListener('click', function () {
+      if (tl.assembling) return;
+      if (tl.recording) stopTimelapse(true);
+      else startTimelapse();
     });
     el('maxStrokes').addEventListener('input', function (e) {
       state.maxStrokes = parseInt(e.target.value, 10);
