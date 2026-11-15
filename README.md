@@ -8,9 +8,9 @@
 
 ## Watch it evolve
 
-<video src="docs/genetic-painting-timelapse.mp4" width="512" controls autoplay loop muted playsinline></video>
+![The Starry Night, evolving from 9 strokes to 271 over 2,783 generations](docs/genetic-painting-timelapse.gif)
 
-*The Starry Night, evolved from 9 strokes to 271 over 2,783 generations — 58.8% match, one frame every 25 generations, about 9 seconds at 12 fps.*
+*The Starry Night, evolved from 9 strokes to 271 over 2,783 generations — 58.8% match, one frame every 25 generations, about 9 seconds at 12 fps. ([MP4 version](docs/genetic-painting-timelapse.mp4))*
 
 ## How it works
 
