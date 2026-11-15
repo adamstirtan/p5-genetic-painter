@@ -77,7 +77,12 @@
         box-shadow: var(--shadow);
       }
       .frame img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 8px; background: #efe9db; }
-      #brushHost canvas { display: block; width: 100% !important; height: auto !important; aspect-ratio: 1 / 1; border-radius: 8px; background: #f6f1e4; }
+      #brushHost { position: relative; aspect-ratio: 1 / 1; }
+      #brushHost canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border-radius: 8px; }
+      #dispBack { background: #f6f1e4; }
+      #dispFront { opacity: 0; }
+      #dispFront.fading { opacity: 1; transition: opacity .38s ease; }
+      @media (prefers-reduced-motion: reduce) { #dispFront.fading { transition: none; } }
 
       .panel {
         background: var(--panel);
@@ -207,7 +212,7 @@
               <figcaption><span class="cap-name">Source</span><span id="srcName">The Starry Night</span></figcaption>
             </figure>
             <figure class="pane">
-              <div class="frame"><div id="brushHost" aria-label="Evolving painting, rendered and scored by p5.brush"></div></div>
+              <div class="frame"><div id="brushHost" aria-label="Evolving painting, rendered and scored by p5.brush"><canvas id="dispBack" width="512" height="512" aria-hidden="true"></canvas><canvas id="dispFront" width="512" height="512" aria-hidden="true"></canvas></div></div>
               <figcaption><span class="cap-name">Evolving painting — p5.brush</span><span class="mono" id="capFit">fitness —</span></figcaption>
             </figure>
           </div>
@@ -267,7 +272,7 @@
       <button type="button" class="btn info-back" id="btnBackStudio">← Back to Studio</button>
       <div class="info-prose">
         <h2>How it works</h2>
-        <p>A genetic algorithm evolves a pile of <strong>brush strokes</strong> — position, direction, length, width, pressure, curve, colour, opacity — until their arrangement resembles a source image. Every stroke is painted by <strong>p5.brush</strong>: each candidate genome is brushed onto a small canvas, the painted pixels are read back and scored against the source, and the fittest genomes survive. The large canvas in the Studio is the current champion, painted by the same brush at full size — the score always describes the painting in front of you.</p>
+        <p>A genetic algorithm evolves a pile of <strong>brush strokes</strong> — position, direction, length, width, pressure, curve, colour, opacity — until their arrangement resembles a source image. Every stroke is painted by <strong>p5.brush</strong>: each candidate genome is brushed onto a small canvas, the painted pixels are read back and scored against the source, and the fittest genomes survive. The large canvas in the Studio is the current champion, painted by the same brush at full size — the score always describes the painting in front of you. Each new champion is painted first onto an offscreen buffer and then crossfaded in over the previous painting, so the display never flashes blank and repaints in front of you — one finished painting simply fades into the next.</p>
         <p><strong>One brush, focused.</strong> The app uses a single brush throughout — the p5.brush <strong>marker</strong> brush at full pigment strength, solid and slightly textured, laid down opaquely so later strokes cover earlier ones like paint over paint. There is no medium or brush picker to distract from how that one brush behaves.</p>
         <p><strong>Brush size is bounded like a real brush — and evolution picks it.</strong> Stroke width is clamped to <strong>2.2%–11% of the canvas width</strong> (about 11–56&nbsp;px on the 512&nbsp;px display canvas) and stroke length to <strong>8%–45%</strong>. There is no size control: every stroke's width and length are genes, and mutation, new-stroke proposals and block-in strokes are all clamped to the same limits, so evolution settles on the sizes that score best. Nothing evolves smaller than a fine detail brush you could actually hold, and nothing grows wider than a fat blob off a fully loaded brush — no pinprick dots, no canvas-wide smears.</p>
         <p><strong>Fitness.</strong> Fitness = pixel error <em>plus</em> an edge/gradient term. Each candidate is painted with p5.brush at 160&nbsp;px, downsampled to 96&nbsp;px, and those painted pixels are compared to the source. Pixel error alone rewards blur; the gradient term pays for strokes that land on edges and run along them.</p>
@@ -496,7 +501,10 @@
     }
 
     /* ---------------- p5.brush renderer (the only renderer) ---------------- */
-    var displayCanvas = null;
+    var displayCanvas = null;   // offscreen buffer the champion is painted onto — never shown directly
+    var dispBackCtx = null, dispFrontCtx = null;   // the two visible layered canvases the buffer crossfades between
+    var fadePending = false, fadeTimer = 0;
+    var FADE_MS = 380;          // crossfade length: quick, so it never lags behind evolution
     var evalCanvas = document.createElement('canvas'); evalCanvas.width = EVAL; evalCanvas.height = EVAL;
     var scoreCv = document.createElement('canvas'); scoreCv.width = SCORE; scoreCv.height = SCORE;
     var scoreCtx = scoreCv.getContext('2d', { willReadFrequently: true });
@@ -556,7 +564,21 @@
         return false;
       }
       try {
-        displayCanvas = brush.createCanvas(DISPLAY, DISPLAY, { parent: el('brushHost'), pixelDensity: 1, id: 'brushCanvas' });
+        // The champion is painted onto this offscreen buffer, not
+        // onto anything visible: when a render finishes,
+        // presentDisplay() crossfades the buffer into the layered
+        // display canvases, so the viewer never sees the canvas
+        // clear to paper and repaint stroke by stroke (the flash).
+        // brush.load() registers any canvas as a target at its own
+        // pixel size — the same path the fitness canvas already
+        // uses — so a plain 512×512 canvas behaves exactly like the
+        // old pixelDensity:1 display canvas did.
+        displayCanvas = document.createElement('canvas');
+        displayCanvas.width = DISPLAY; displayCanvas.height = DISPLAY;
+        dispBackCtx = el('dispBack').getContext('2d');
+        dispFrontCtx = el('dispFront').getContext('2d');
+        dispBackCtx.fillStyle = PAPER_HEX;
+        dispBackCtx.fillRect(0, 0, DISPLAY, DISPLAY);
         brush.scaleBrushes(2.5);
         brush.seed(7); brush.noiseSeed(7);
         brush.load(evalCanvas);
@@ -1016,12 +1038,45 @@
       state.lastSnapGen = state.gen;
     }
 
-    /* ---------------- display render (chunked, same draw code) ----------------
-       The display canvas is painted by the same renderWithBrush path
-       as fitness, one genome, at DISPLAY px. It is drawn in time-
-       sliced chunks so a slow GPU never freezes the page; while a
+    /* ---------------- display render (chunked, buffered, crossfaded) ----------------
+       The champion is painted by the same draw code as fitness, one
+       genome, at DISPLAY px — but onto an offscreen buffer canvas,
+       in time-sliced chunks so a slow GPU never freezes the page.
+       The visible display is two layered 2D canvases: the back one
+       holds the painting currently on show, and when a buffer
+       render finishes, presentDisplay() copies it into the front
+       canvas and fades that in over the back one, then settles the
+       faded image into the back layer. The viewer sees one painting
+       crossfade into the next — never the paper-coloured clear and
+       progressive repaint that used to read as a flash. While a
        display render runs, evolution pauses rather than switching
        p5.brush targets mid-painting. */
+    function presentDisplay() {
+      if (!dispFrontCtx || !displayCanvas) return;
+      if (fadePending) settleFade();   // a previous fade is still running — land it before starting the next
+      var front = el('dispFront');
+      dispFrontCtx.clearRect(0, 0, DISPLAY, DISPLAY);
+      dispFrontCtx.drawImage(displayCanvas, 0, 0);
+      front.classList.remove('fading');
+      void front.offsetWidth;          // restart the opacity transition from 0
+      front.classList.add('fading');
+      fadePending = true;
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(settleFade, FADE_MS + 80);
+    }
+    function settleFade() {
+      if (!fadePending) return;
+      fadePending = false;
+      clearTimeout(fadeTimer);
+      // The front canvas now fully covers the back one with the same
+      // image: copy it down into the back layer and hide the front,
+      // leaving the display showing exactly what the fade produced.
+      if (dispBackCtx) {
+        dispBackCtx.clearRect(0, 0, DISPLAY, DISPLAY);
+        dispBackCtx.drawImage(el('dispFront'), 0, 0);
+      }
+      el('dispFront').classList.remove('fading');
+    }
     var displayJob = null;
     var lastDisplayStart = 0;
     var evolveCooldownUntil = 0;   // slow-GPU breathing room between evaluations
@@ -1055,9 +1110,11 @@
       try { brush.pop(); } catch (err) { /* stack already balanced */ }
       try { brush.render(); } catch (err) { /* canvas holds the last flush */ }
       displayJob = null;
+      presentDisplay();   // buffer is complete — crossfade it in over the previous painting
       state.displayedGen = gen;
     }
     function cancelDisplayRender() {
+      settleFade();   // land any in-flight crossfade so the visible layers stay consistent
       if (!displayJob) return;
       try { brush.pop(); } catch (err) { /* ignore */ }
       displayJob = null;
