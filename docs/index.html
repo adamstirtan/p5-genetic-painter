@@ -288,9 +288,10 @@
         <h2>How it works</h2>
         <p>A genetic algorithm evolves a pile of <strong>brush strokes</strong> — position, direction, length, width, pressure, curve, colour, opacity — until their arrangement resembles a source image. Every stroke is painted by <strong>p5.brush</strong>: each candidate genome is brushed onto a small canvas, the painted pixels are read back and scored against the source, and the fittest genomes survive. The large canvas in the Studio is the current champion, painted by the same brush at full size — the score always describes the painting in front of you. Each new champion is painted first onto an offscreen buffer and then crossfaded in over the previous painting, so the display never flashes blank and repaints in front of you — one finished painting simply fades into the next.</p>
         <p><strong>One brush, focused.</strong> The app uses a single brush throughout — the p5.brush <strong>marker</strong> brush at full pigment strength, solid and slightly textured, laid down opaquely so later strokes cover earlier ones like paint over paint. There is no medium or brush picker to distract from how that one brush behaves.</p>
-        <p><strong>Brush size is bounded like a real brush — and evolution picks it.</strong> Stroke width is clamped to <strong>2.2%–11% of the canvas width</strong> (about 11–56&nbsp;px on the 512&nbsp;px display canvas) and stroke length to <strong>8%–45%</strong>. There is no size control: every stroke's width and length are genes, and mutation, new-stroke proposals and block-in strokes are all clamped to the same limits, so evolution settles on the sizes that score best. Nothing evolves smaller than a fine detail brush you could actually hold, and nothing grows wider than a fat blob off a fully loaded brush — no pinprick dots. The one deliberate exception is the <strong>ground wash</strong>: its sweeps are clamped to wider limits (width up to 34%, length up to 115% of the canvas) because a wash is supposed to span the sheet — that is the whole point of laying a ground.</p>
+        <p><strong>Brush size is bounded like a real brush — and evolution picks it.</strong> Stroke width is clamped to <strong>2.2%–11% of the canvas width</strong> (about 11–56&nbsp;px on the 512&nbsp;px display canvas) and stroke length to <strong>8%–45%</strong>. There is no size control: every stroke's width and length are genes, and mutation and new-stroke proposals are clamped to the same limits, so evolution settles on the sizes that score best. Nothing evolves smaller than a fine detail brush you could actually hold, and nothing grows wider than a fat blob off a fully loaded brush — no pinprick dots. Two deliberate exceptions share wider limits (width up to 34%, length up to 115% of the canvas): the <strong>ground wash</strong>, whose sweeps are supposed to span the sheet — that is the whole point of laying a ground — and the <strong>notan block-in</strong> strokes, one per tonal mass, which have to be sized to the mass they stand in for.</p>
         <p><strong>Fitness.</strong> Fitness = pixel error <em>plus</em> an edge/gradient term. Each candidate is painted with p5.brush at 160&nbsp;px, downsampled to 96&nbsp;px, and those painted pixels are compared to the source. Pixel error alone rewards blur; the gradient term pays for strokes that land on edges and run along them.</p>
-        <p><strong>How evolution moves.</strong> A <strong>population of seven genomes</strong> evolves at once — seven painters, seven canvases. Each founder starts the way a painter starts — <strong>wash first, then block in the masses</strong>. Underneath everything sits a <strong>ground wash</strong>: six huge, translucent sweeps in the target's regional average colours — four broad bands tiling the canvas top to bottom, plus two long diagonals — that cover the whole canvas from generation 0, so there is no bare white paper at any point and every later stroke is detail painted on a coloured ground. The wash strokes are part of the genome and evolve like any other stroke — their colour, size and opacity are genes — just clamped to wider size limits so they stay broad enough to hold the ground, and crossover always carries a full wash into the child. On top of the wash, a coarse 3×3, 4×4 or 5×5 grid <strong>blocks in the big masses</strong>: one large stroke per cell in that cell's regional average colour — <strong>15 to 31 strokes</strong> per founder in total — with a different grid size, a different grid offset and slightly different wash bands for each founder, so generation 0 already lays down the image's broad shapes instead of a random splat, and the seven founders still differ enough for crossover to have material to work with. Detail is not seeded: extra strokes are earned later, one at a time, whenever progress stagnates. Each generation picks two parents by <strong>tournament selection</strong> (draw three genomes at random, keep the fittest) and breeds a child by <strong>spatial crossover</strong>: a line is drawn across the canvas and the child takes its strokes from one parent on one side of the line, the other parent on the other side — so a genome with a great sky and a genome with a great foreground can produce a child with both. The child is then <strong>mutated</strong> — and mutation is aimed, not random. It finds the stroke sitting on the <strong>biggest remaining error</strong> and fixes that one: recolouring it from the target, dragging it onto the error peak, or resizing it to cover the bad patch. A stroke's colour is never a random guess — whenever a stroke is born, moved or recoloured, its colour is <strong>sampled from the source image where it lands</strong>, so most mutations start close instead of wasting generations un-guessing a bad colour. The child is painted by p5.brush and scored on its own render. To earn a place it must beat the population member most similar to itself, or the current worst; near-clones of a fitter genome are turned away. That crowding rule keeps the seven genomes genuinely different from each other, which is what keeps crossover useful — a population of identical champions would have nothing to combine.</p>
+        <p><strong>How evolution moves.</strong> A <strong>population of seven genomes</strong> evolves at once — seven painters, seven canvases. Each founder starts the way a painter starts — <strong>wash first, then block in the tonal masses (notan)</strong>. Underneath everything sits a <strong>ground wash</strong>: six huge, translucent sweeps in the target's regional average colours — four broad bands tiling the canvas top to bottom, plus two long diagonals — that cover the whole canvas from generation 0, so there is no bare white paper at any point and every later stroke is detail painted on a coloured ground. The wash strokes are part of the genome and evolve like any other stroke — their colour, size and opacity are genes — just clamped to wider size limits so they stay broad enough to hold the ground, and crossover always carries a full wash into the child. On top of the wash, the founder <strong>blocks in the big tonal masses</strong> instead of painting a grid: the source is split into its large light-and-dark regions (a three-level Otsu threshold on brightness, then connected regions), and each founder lays <strong>one large stroke per major region</strong> — sized to that region's bounding box, angled along its long axis, coloured with its mean colour. Founders take the top 12, 18 or 24 regions, so a founder totals <strong>18 to 30 strokes</strong> (six wash sweeps plus its masses), with a different region count and slightly different wash bands for each founder — generation 0 already follows the image's actual shapes instead of a random splat or a uniform grid, and the seven founders still differ enough for crossover to have material to work with. Detail is not seeded: extra strokes are earned later, one at a time, whenever progress stagnates. Each generation picks two parents by <strong>tournament selection</strong> (draw three genomes at random, keep the fittest) and breeds a child by <strong>spatial crossover</strong>: a line is drawn across the canvas and the child takes its strokes from one parent on one side of the line, the other parent on the other side — so a genome with a great sky and a genome with a great foreground can produce a child with both. The child is then <strong>mutated</strong> — and mutation is aimed, not random. Which kind of mutation fires is itself learned: there are four branches — repair the worst strokes, add a new stroke, delete a stroke, or make a big repair — and the algorithm <strong>keeps score on which branches actually produce children that survive</strong>, shifting the odds toward the winners every 20 generations (recent form counts most; the counters fade with a ~100-generation half-life). In practice it learns that adding strokes pays most reliably, so genomes grow faster than fixed odds would allow. The repair branch is <strong>memetic batch repair</strong>: it fixes the <strong>three worst strokes at once</strong> — re-finding the worst stroke after each fix, so the batch always works on the current top three — recolouring each from the target, dragging it onto the error peak, or resizing it to cover the bad patch; and when a child of the current champion adds a stroke, it adds <strong>two focused strokes</strong> instead of one. A stroke's colour is never a random guess — whenever a stroke is born, moved or recoloured, its colour is <strong>sampled from the source image where it lands</strong>, so most mutations start close instead of wasting generations un-guessing a bad colour. The child is painted by p5.brush and scored on its own render. To earn a place it must beat the population member most similar to itself, or the current worst; near-clones of a fitter genome are turned away. That crowding rule keeps the seven genomes genuinely different from each other, which is what keeps crossover useful — a population of identical champions would have nothing to combine.</p>
+        <p><strong>Growth goes to the best three.</strong> When the best score stalls, stagnation detection adds one more stroke — but only to the <strong>three fittest genomes</strong>, each stroke aimed at the worst-matching region. The other four keep their scores untouched. That saves four full p5.brush re-evaluations per growth event for the same match gain, and leaves the untouched genomes as diverse material for crossover instead of growing all seven in lockstep.</p>
         <p><strong>The fitness chart.</strong> The chart in the Studio keeps the <em>complete</em> history of the run — every generation from 0 to now, never a sliding window — plotted at full width so early block-in gains and later slow refinement are both visible.</p>
       </div>
 
@@ -316,7 +317,7 @@
           <div class="card">
             <div class="swatch" style="background:radial-gradient(circle at 40% 45%,#7fb2c9 0 30%,#4d84a6 62%,#2c5a7d 100%)"></div>
             <h3>A genome that grows</h3>
-            <p>Genomes start as a ground wash under a block-in of large colour masses — the canvas covered from the first generation, the detail not yet earned — and grow only when they have to. When the best score stalls below a ready match, <strong>stagnation detection</strong> adds <strong>one more stroke</strong> to every genome, aimed at the worst-matching region, and the genome-size cap lifts if it is in the way. Growth pauses at 90% match, so a finished painting refines instead of bloating.</p>
+            <p>Genomes start as a ground wash under a notan block-in of large tonal masses — the canvas covered from the first generation, the detail not yet earned — and grow only when they have to. When the best score stalls below a ready match, <strong>stagnation detection</strong> adds <strong>one more stroke</strong> to each of the <strong>three fittest genomes</strong>, aimed at the worst-matching region, and the genome-size cap lifts if it is in the way. Growth pauses at 90% match, so a finished painting refines instead of bloating.</p>
           </div>
         </div>
       </section>
@@ -353,18 +354,19 @@
             <tr><th>curve</th><td>Quadratic bend through a control point — real brushes arc; straight strokes look stamped.</td></tr>
             <tr><th>pressure</th><td>Drives the spline's per-point pressure and the brush weight: heavy at touchdown, lifting at the tail, and p5.brush's pressure curves shape the tip accordingly.</td></tr>
             <tr><th>colour + jitter</th><td>Sampled near the stroke's location, then jittered slightly so neighbouring strokes don't land as one flat fill.</td></tr>
-            <tr><th>width + length</th><td>Clamped to a real brush's range: width 2.2%–11% of the canvas, length 8%–45%. Mutation can push a stroke toward either bound but never past it — size is a gene, not a setting. Wash sweeps are the exception, clamped to width up to 34% and length up to 115% so the ground can span the sheet.</td></tr>
+            <tr><th>width + length</th><td>Clamped to a real brush's range: width 2.2%–11% of the canvas, length 8%–45%. Mutation can push a stroke toward either bound but never past it — size is a gene, not a setting. Wash sweeps and notan block-in strokes are the exceptions, clamped to width up to 34% and length up to 115% so the ground can span the sheet and a mass stroke can span its region.</td></tr>
             <tr><th>wash</th><td>Marks one of the six ground-wash sweeps every genome starts with — huge, translucent, painted first so the canvas is covered from generation 0. A wash stroke's colour, size and opacity evolve like any other gene; crossover always inherits a full wash, so the ground never vanishes in one breeding.</td></tr>
+            <tr><th>big (notan)</th><td>Marks one of the founder's tonal-mass strokes — one per major light-or-dark region of the source, sized to that region's bounding box and angled along its long axis. It keeps the wider wash-scale size limits as it evolves, so a mass can be refined in place instead of shrinking into an ordinary stroke in one mutation.</td></tr>
             <tr><th>opacity</th><td>p5.brush strokes take a colour and a weight, not an alpha — so opacity is baked in as pigment strength against the paper colour.</td></tr>
             <tr><th>seed</th><td>Each stroke reseeds p5.brush's random streams before it is drawn, so its grain and scatter are stable and independent of the strokes around it — mutating stroke #80 never reshuffles the texture of stroke #81.</td></tr>
-            <tr><th>+ stroke (growth)</th><td>Not a gene, an event: when fitness stagnates below a ready match, one new stroke gene is added to every genome, aimed at the region with the highest remaining error — so the genome grows a single stroke at a time, where the painting is weakest, instead of only mutating what it already has.</td></tr>
+            <tr><th>+ stroke (growth)</th><td>Not a gene, an event: when fitness stagnates below a ready match, one new stroke gene is added to each of the three fittest genomes only, aimed at the region with the highest remaining error — so the leaders grow a single stroke at a time, where the painting is weakest, instead of only mutating what they already have, and the other genomes are not re-scored for a change they never received.</td></tr>
           </table>
         </div>
 
         <div class="verdict">
           <h3 style="margin-bottom:8px">The verdict on the idea</h3>
           <p><strong>It works, and strokes are the right primitive</strong> — better than the polygons in Roger Alsing's famous genetic Mona Lisa, because a stroke already carries painterly information (direction, taper, texture) that a polygon has to fake. The two hard parts are exactly the ones you flagged: the <em>renderer</em> decides whether it looks like paint, and the <em>fitness function</em> decides whether it looks like the subject.</p>
-          <p>The design trades speed for brushwork. p5.brush is built for texture, and every candidate costs a full painting, so the population stays small — <strong>seven genomes</strong> in a steady-state tournament, one child per generation competing for a place — and genomes stay in the low hundreds of strokes. Fitness is read at 160&nbsp;px, which keeps generations moving while strokes are still large; the display canvas repaints the champion at 512&nbsp;px. Stroke count grows as it goes: genomes start at 15 to 31 strokes — a six-sweep ground wash under a 9-to-25-stroke block-in of large colour masses — and when the best score goes ~40 generations without a meaningful gain <em>and</em> the match is still below 90%, stagnation detection adds one more stroke to every genome, aimed at the worst-matching region; growth pauses once the painting is ready. Natural next steps: raise the fitness resolution as genomes mature, and use p5.brush vector fields to bend stroke flow around the subject's forms.</p>
+          <p>The design trades speed for brushwork. p5.brush is built for texture, and every candidate costs a full painting, so the population stays small — <strong>seven genomes</strong> in a steady-state tournament, one child per generation competing for a place — and genomes stay in the low hundreds of strokes. Fitness is read at 160&nbsp;px, which keeps generations moving while strokes are still large; the display canvas repaints the champion at 512&nbsp;px. Stroke count grows as it goes: genomes start at 18 to 30 strokes — a six-sweep ground wash under a 12-to-24-stroke notan block-in of large tonal masses — and when the best score goes ~40 generations without a meaningful gain <em>and</em> the match is still below 90%, stagnation detection adds one more stroke to each of the three fittest genomes, aimed at the worst-matching region; growth pauses once the painting is ready. Natural next steps: raise the fitness resolution as genomes mature, and use p5.brush vector fields to bend stroke flow around the subject's forms.</p>
         </div>
       </section>
 
@@ -422,11 +424,25 @@
     var WASH_W_MIN = 0.10, WASH_W_MAX = 0.34;
     var WASH_LEN_MIN = 0.35, WASH_LEN_MAX = 1.15;
     var WASH_COUNT = 6;   // wash sweeps under every founder genome
+    // Notan block-in strokes carry big:true — one stroke per tonal
+    // mass, sized to that mass's bounding box, so they need the
+    // wash-scale length ceiling (up to 1.15) and a wider width
+    // ceiling (up to 0.34) while keeping the ordinary fine-detail
+    // minimums. Later mutations re-clamp them through the same
+    // limits, so a big mass can shrink toward detail size but
+    // never grows past wash scale.
+    var BIG_W_MAX = 0.34, BIG_LEN_MAX = 1.15;
 
     function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+    function strokeLimits(s) {
+      if (s.wash) return { wMin: WASH_W_MIN, wMax: WASH_W_MAX, lMin: WASH_LEN_MIN, lMax: WASH_LEN_MAX };
+      if (s.big) return { wMin: STROKE_W_MIN, wMax: BIG_W_MAX, lMin: STROKE_LEN_MIN, lMax: BIG_LEN_MAX };
+      return { wMin: STROKE_W_MIN, wMax: STROKE_W_MAX, lMin: STROKE_LEN_MIN, lMax: STROKE_LEN_MAX };
+    }
     function clampStrokeSize(s) {
-      var wMin = s.wash ? WASH_W_MIN : STROKE_W_MIN, wMax = s.wash ? WASH_W_MAX : STROKE_W_MAX;
-      var lMin = s.wash ? WASH_LEN_MIN : STROKE_LEN_MIN, lMax = s.wash ? WASH_LEN_MAX : STROKE_LEN_MAX;
+      var L = strokeLimits(s);
+      var wMin = L.wMin, wMax = L.wMax;
+      var lMin = L.lMin, lMax = L.lMax;
       s.w = clamp(s.w, wMin, wMax);
       var len = Math.sqrt(s.dx * s.dx + s.dy * s.dy);
       if (len < 1e-6) { s.dx = lMin; s.dy = 0; return s; }
@@ -451,6 +467,21 @@
     var STAGNANT_GENS = 40;       // generations without a meaningful gain before growth fires
     var MEANINGFUL_GAIN = 0.0005; // best-score drop that counts as real progress
     var GROWTH_COOLDOWN = 35;     // minimum generations between growth events
+    /* Adaptive operator selection: the four mutation branches in
+       makeOffspring — [0] worst-fix + mutate, [1] add a stroke,
+       [2] deletion, [3] big worst-fix — start at the baseline odds
+       below. Every generation records which branch bred the child
+       and whether that child earned a place in the population;
+       the counters decay with a ~100-generation half-life so recent
+       form counts most, and every 20 generations the odds are
+       reweighted toward whichever branches are actually producing
+       survivors (softmax over success rates, anchored to the
+       baseline prior). */
+    var OP_BASE = [0.55, 0.27, 0.06, 0.12];
+    var opSucc = [0, 0, 0, 0], opAtt = [0, 0, 0, 0];
+    var opProbs = OP_BASE.slice();
+    var lastBranch = -1;          // branch that bred the current child (0..3)
+    var NOTAN_DATA = null;        // tonal-mass regions for the current target, computed in loadTarget
     var state = {
       playing: true, gen: 0, best: null, bestScore: Infinity, blankScore: 0,
       population: [],
@@ -525,10 +556,76 @@
         if (magOut) magOut[idx] = Math.sqrt(gx * gx + gy * gy);
       }
     }
+    /* Notan: 3-level Otsu on the target's luminance + connected
+       components per value class. Computed once per target in
+       loadTarget; founders then block in one large stroke per
+       major tonal mass instead of a uniform grid. Regions carry
+       area, centroid, bounding box, mean colour and long-axis
+       angle (PCA) — everything seedGenome needs to place a mass. */
+    function computeNotan() {
+      var hist = new Float64Array(256);
+      var lum = new Uint8Array(SAMPLE * SAMPLE);
+      for (var i = 0; i < SAMPLE * SAMPLE; i++) {
+        var j = i * 4;
+        var l = Math.round(sampleData[j] * 0.299 + sampleData[j + 1] * 0.587 + sampleData[j + 2] * 0.114);
+        lum[i] = l; hist[l]++;
+      }
+      var total = SAMPLE * SAMPLE;
+      var sum = 0; for (var hi = 0; hi < 256; hi++) sum += hi * hist[hi];
+      var cumN = new Float64Array(257), cumS = new Float64Array(257);
+      for (var ci = 0; ci < 256; ci++) { cumN[ci + 1] = cumN[ci] + hist[ci]; cumS[ci + 1] = cumS[ci] + ci * hist[ci]; }
+      var best = -1, bt1 = 0, bt2 = 0;
+      for (var t1 = 1; t1 < 254; t1++) for (var t2 = t1 + 1; t2 < 255; t2++) {
+        var w0 = cumN[t1], w1 = cumN[t2] - cumN[t1], w2 = total - cumN[t2];
+        if (w0 === 0 || w1 === 0 || w2 === 0) continue;
+        var m0 = cumS[t1] / w0, m1 = (cumS[t2] - cumS[t1]) / w1, m2 = (sum - cumS[t2]) / w2;
+        var mt = sum / total;
+        var vb = w0 * (m0 - mt) * (m0 - mt) + w1 * (m1 - mt) * (m1 - mt) + w2 * (m2 - mt) * (m2 - mt);
+        if (vb > best) { best = vb; bt1 = t1; bt2 = t2; }
+      }
+      var cls = new Uint8Array(SAMPLE * SAMPLE);
+      for (var k = 0; k < SAMPLE * SAMPLE; k++) cls[k] = lum[k] < bt1 ? 0 : (lum[k] < bt2 ? 1 : 2);
+      var comp = new Int32Array(SAMPLE * SAMPLE).fill(-1);
+      var regions = [];
+      var stack = [];
+      for (var s = 0; s < SAMPLE * SAMPLE; s++) {
+        if (comp[s] >= 0) continue;
+        var c = cls[s];
+        var id = regions.length + 1000000;
+        var area = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, sr = 0, sg = 0, sb = 0;
+        var minX = SAMPLE, maxX = -1, minY = SAMPLE, maxY = -1;
+        stack.length = 0; stack.push(s); comp[s] = id;
+        while (stack.length) {
+          var p = stack.pop();
+          var px = p % SAMPLE, py = Math.floor(p / SAMPLE);
+          area++; sx += px; sy += py; sxx += px * px; syy += py * py; sxy += px * py;
+          var jj = p * 4; sr += sampleData[jj]; sg += sampleData[jj + 1]; sb += sampleData[jj + 2];
+          if (px < minX) minX = px; if (px > maxX) maxX = px;
+          if (py < minY) minY = py; if (py > maxY) maxY = py;
+          if (px > 0 && comp[p - 1] < 0 && cls[p - 1] === c) { comp[p - 1] = id; stack.push(p - 1); }
+          if (px < SAMPLE - 1 && comp[p + 1] < 0 && cls[p + 1] === c) { comp[p + 1] = id; stack.push(p + 1); }
+          if (py > 0 && comp[p - SAMPLE] < 0 && cls[p - SAMPLE] === c) { comp[p - SAMPLE] = id; stack.push(p - SAMPLE); }
+          if (py < SAMPLE - 1 && comp[p + SAMPLE] < 0 && cls[p + SAMPLE] === c) { comp[p + SAMPLE] = id; stack.push(p + SAMPLE); }
+        }
+        if (area >= 40) {
+          var mx = sx / area, my = sy / area;
+          var cxx = sxx / area - mx * mx, cyy = syy / area - my * my, cxy = sxy / area - mx * my;
+          var theta = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+          regions.push({
+            area: area, cx: mx / SAMPLE, cy: my / SAMPLE,
+            minX: minX / SAMPLE, maxX: maxX / SAMPLE, minY: minY / SAMPLE, maxY: maxY / SAMPLE,
+            ang: theta, r: sr / area / 255, g: sg / area / 255, b: sb / area / 255, cls: c
+          });
+        }
+      }
+      regions.sort(function (a, b) { return b.area - a.area; });
+      NOTAN_DATA = { t1: bt1, t2: bt2, regions: regions, nRegions: regions.length };
+    }
     function loadTarget(img) {
       coverDraw(sctx, img, SAMPLE);
       sampleData = sctx.getImageData(0, 0, SAMPLE, SAMPLE).data;
       sobel(sampleData, SAMPLE, gradAng, gradMag);
+      computeNotan();
       coverDraw(stctx, img, SCORE);
       var fd = stctx.getImageData(0, 0, SCORE, SCORE).data;
       for (var i = 0; i < SCORE * SCORE; i++) {
@@ -582,9 +679,10 @@
         PAPER_RGB[1] + (s.g - PAPER_RGB[1]) * k,
         PAPER_RGB[2] + (s.b - PAPER_RGB[2]) * k
       );
-      var wClamped = clamp(s.w, s.wash ? WASH_W_MIN : STROKE_W_MIN, s.wash ? WASH_W_MAX : STROKE_W_MAX);
+      var sLim = strokeLimits(s);
+      var wClamped = clamp(s.w, sLim.wMin, sLim.wMax);
       var pxWidth = Math.max(2, wClamped * S * (0.35 + 0.65 * s.p)) * st.weightMul;
-      var weight = clamp(pxWidth / brushDivisor(name), 0.4, s.wash ? 30 : 16);
+      var weight = clamp(pxWidth / brushDivisor(name), 0.4, (s.wash || s.big) ? 30 : 16);
       // Reseed from the stroke's own seed gene: this stroke's grain is
       // stable no matter what the rest of the genome does.
       brush.seed(100000 + Math.floor(clamp(s.seed, 0, 0.999999) * 899999));
@@ -723,7 +821,7 @@
     }
     function cloneGenome(g) {
       return g.map(function (s) {
-        return { x: s.x, y: s.y, dx: s.dx, dy: s.dy, w: s.w, r: s.r, g: s.g, b: s.b, a: s.a, p: s.p, curve: s.curve, seed: s.seed, wash: s.wash ? true : false };
+        return { x: s.x, y: s.y, dx: s.dx, dy: s.dy, w: s.w, r: s.r, g: s.g, b: s.b, a: s.a, p: s.p, curve: s.curve, seed: s.seed, wash: s.wash ? true : false, big: s.big ? true : false };
       });
     }
     function resampleColour(s, amt) {
@@ -747,7 +845,7 @@
         resampleColour(s, 0.4);   // the stroke lands somewhere new — take that spot's colour with it
       }
       else if (t < 0.68) { resampleColour(s, 0.9); }
-      else if (t < 0.82) { s.w = clamp(s.w * (1 + gauss() * 0.3 * m), s.wash ? WASH_W_MIN : STROKE_W_MIN, s.wash ? WASH_W_MAX : STROKE_W_MAX); s.p = clamp(s.p + gauss() * 0.2, 0.1, 1); }
+      else if (t < 0.82) { var limW = strokeLimits(s); s.w = clamp(s.w * (1 + gauss() * 0.3 * m), limW.wMin, limW.wMax); s.p = clamp(s.p + gauss() * 0.2, 0.1, 1); }
       else if (t < 0.92) { s.curve = clamp(s.curve + gauss() * 0.12 * m, -0.6, 0.6); s.seed = Math.random(); }
       else { var st = STYLE; s.a = clamp(s.a + gauss() * 0.12, s.wash ? 0.12 : st.alpha[0] * 0.6, 1); }
       return clampStrokeSize(s);
@@ -798,7 +896,8 @@
         // resize: stretch or shrink the stroke to cover the bad patch
         var f = clamp(1 + gauss() * 0.35 * m, 0.55, 1.9);
         s.dx *= f; s.dy *= f;
-        s.w = clamp(s.w * clamp(1 + gauss() * 0.3, 0.7, 1.5), s.wash ? WASH_W_MIN : STROKE_W_MIN, s.wash ? WASH_W_MAX : STROKE_W_MAX);
+        var limF = strokeLimits(s);
+        s.w = clamp(s.w * clamp(1 + gauss() * 0.3, 0.7, 1.5), limF.wMin, limF.wMax);
       }
       return clampStrokeSize(s);
     }
@@ -901,48 +1000,77 @@
       picked.sort(function (p, q) { return p.ord - q.ord; });
       var child = picked.map(function (p) {
         var c = p.s;
-        return { x: c.x, y: c.y, dx: c.dx, dy: c.dy, w: c.w, r: c.r, g: c.g, b: c.b, a: c.a, p: c.p, curve: c.curve, seed: c.seed, wash: c.wash ? true : false };
+        return { x: c.x, y: c.y, dx: c.dx, dy: c.dy, w: c.w, r: c.r, g: c.g, b: c.b, a: c.a, p: c.p, curve: c.curve, seed: c.seed, wash: c.wash ? true : false, big: c.big ? true : false };
       });
       while (child.length > state.maxStrokes) child.splice(randi(0, child.length - 1), 1);
       return child;
+    }
+    function reweightOperators() {
+      // Softmax over recent branch success rates, anchored to the
+      // baseline prior: p_i ∝ base_i · exp((rate_i − meanRate)/0.1),
+      // each unnormalised weight floored at 0.05 before normalising.
+      // With no data the rates are equal, so the odds stay at base.
+      var rates = [];
+      var mean = 0;
+      for (var i = 0; i < 4; i++) {
+        var r = (opSucc[i] + 0.5) / (opAtt[i] + 1);
+        rates.push(r); mean += r;
+      }
+      mean /= 4;
+      var tau = 0.1;
+      var ws = rates.map(function (rr, ii) { return OP_BASE[ii] * Math.exp((rr - mean) / tau); });
+      ws = ws.map(function (w) { return Math.max(0.05, w); });
+      var sum = ws.reduce(function (a, b) { return a + b; }, 0);
+      opProbs = ws.map(function (w) { return w / sum; });
     }
     function makeOffspring() {
       // One child per generation: tournament parents → spatial
       // crossover → mutation. Most children differ from their
       // parents in only a few strokes beyond the crossover, so the
       // p5.brush render — and therefore the score — changes locally.
+      // Which mutation branch fires is drawn from opProbs — the
+      // adaptive odds that stepGeneration keeps reweighting toward
+      // whichever branch is actually producing survivors — and the
+      // branch taken is recorded in lastBranch for that bookkeeping.
       var pop = state.population;
       var ia = tournamentSelect(-1);
       var ib = tournamentSelect(ia);
       var child = spatialCrossover(pop[ia].genome, pop[ib].genome);
       state.pendingGrowthAdds = 0;
       if (!child.length) child = cloneGenome(pop[ia].genome);
+      var probs = opProbs;
       var roll = Math.random();
-      if (roll < 0.55) {
-        // Worst-stroke targeting: the first repair always goes to
-        // the stroke sitting on the biggest error — fix that one
-        // instead of mutating a random, probably-fine stroke.
-        var nMut = randi(1, 3);
-        for (var k = 0; k < nMut; k++) {
-          if (k === 0) {
-            var wIdx = worstStrokeIndex(child);
-            if (wIdx >= 0) { child[wIdx] = fixStroke(child[wIdx], Math.random() < 0.10); continue; }
-          }
-          var idx = randi(0, child.length - 1);
-          child[idx] = mutateStroke(child[idx], Math.random() < 0.10);
+      var branch = -1;
+      if (roll < probs[0]) {
+        branch = 0;
+        // Memetic batch repair: fix the three worst strokes at
+        // once — the worst-stroke index is recomputed after each
+        // fix, so the batch always works on the current top three
+        // instead of repairing one stroke and mutating the rest.
+        for (var k = 0; k < 3; k++) {
+          var wIdx = worstStrokeIndex(child);
+          if (wIdx >= 0) child[wIdx] = fixStroke(child[wIdx], Math.random() < 0.10);
         }
-      } else if (roll < 0.82) {
+      } else if (roll < probs[0] + probs[1]) {
+        branch = 1;
         addStroke(child, Math.random() < 0.5);
+        // Memetic: a child of the current best genome (first
+        // tournament winner is the champion) gets a second,
+        // focused stroke as well.
+        if (ia === 0) addStroke(child, true);
         if (Math.random() < 0.3 && child.length > 1) {
           var mIdx = worstStrokeIndex(child);
           if (mIdx >= 0) child[mIdx] = fixStroke(child[mIdx], false);
         }
-      } else if (roll < 0.88 && child.length > 12) {
+      } else if (roll < probs[0] + probs[1] + probs[2] && child.length > 12) {
+        branch = 2;
         child.splice(randi(0, child.length - 1), 1);   // deletion mutation — never guts a young, sparse genome
       } else {
+        branch = 3;
         var bIdx = worstStrokeIndex(child);
         if (bIdx >= 0) child[bIdx] = fixStroke(child[bIdx], true);
       }
+      lastBranch = branch;
       return child;
     }
     function syncBest() {
@@ -1016,25 +1144,47 @@
     }
     function seedGenome(founderIdx) {
       // A founder starts the way a painter starts: wash first,
-      // then block in the big masses. The wash (above) covers the
-      // whole canvas from generation 0 — there is no bare white
-      // paper at any point — and on top of that coloured ground a
-      // coarse grid blocks in the masses: ONE large stroke per
-      // cell in that cell's regional average colour, at the top
-      // of the ordinary brush-size range, so even a 3×3 block-in
-      // lays down the image's broad shapes as big colour masses
-      // rather than a handful of small strokes. 6 wash sweeps +
-      // 9, 16 or 25 block-in strokes per founder. Detail is NOT
-      // seeded: extra strokes are earned later, one at a time,
-      // through stagnation-driven growth. Each founder gets a
-      // different grid size, a different grid offset and slightly
-      // different wash bands, so the seven founders start the
-      // same image in seven genuinely different ways and the
-      // population stays diverse.
+      // then block in the big tonal masses — notan. The wash
+      // (above) covers the whole canvas from generation 0 — there
+      // is no bare white paper at any point — and on top of that
+      // coloured ground, ONE large stroke per major tonal mass
+      // blocks in the image: the masses come from the notan
+      // analysis in loadTarget (3-level Otsu on luminance +
+      // connected components), each stroke sized to its region's
+      // bounding box, angled along the region's long axis and
+      // coloured with the region's mean colour. Founders take the
+      // top 12, 18 or 24 regions by founder index, so totals run
+      // 6 wash sweeps + 12–24 mass strokes. Detail is NOT seeded:
+      // extra strokes are earned later, one at a time, through
+      // stagnation-driven growth. Each founder gets a different
+      // region count and slightly different wash bands, so the
+      // seven founders start the same image in seven genuinely
+      // different ways and the population stays diverse. If a
+      // target yields no usable regions, founders fall back to
+      // the old coarse-grid block-in below.
       var fi = founderIdx || 0;
       var st = STYLE;
       var g = makeWashStrokes(fi);
-      var N = 3 + (fi % 3);                                  // 3×3, 4×4 or 5×5 grid, by founder
+      if (NOTAN_DATA && NOTAN_DATA.regions.length > 0) {
+        var K = 12 + (fi % 3) * 6;
+        var regs = NOTAN_DATA.regions.slice(0, K);
+        for (var ri = 0; ri < regs.length; ri++) {
+          var rg = regs[ri];
+          var lenN = clamp(Math.max(rg.maxX - rg.minX, rg.maxY - rg.minY), 0.28, 1.0);
+          var wdtN = clamp(Math.min(rg.maxX - rg.minX, rg.maxY - rg.minY) * 0.9, 0.075, 0.30);
+          var angN = rg.ang + gauss() * 0.15;
+          g.push(clampStrokeSize({
+            x: clamp(rg.cx - Math.cos(angN) * lenN / 2, 0, 1), y: clamp(rg.cy - Math.sin(angN) * lenN / 2, 0, 1),
+            dx: Math.cos(angN) * lenN, dy: Math.sin(angN) * lenN,
+            w: wdtN,
+            r: clamp(rg.r + gauss() * st.jitter, 0, 1), g: clamp(rg.g + gauss() * st.jitter, 0, 1), b: clamp(rg.b + gauss() * st.jitter, 0, 1),
+            a: rand(Math.max(st.alpha[0], 0.75), 1.0),
+            p: rand(0.7, 1.0), curve: gauss() * st.curve * 0.6, seed: Math.random(), big: true
+          }));
+        }
+        return g;
+      }
+      var N = 3 + (fi % 3);                                  // fallback: 3×3, 4×4 or 5×5 grid, by founder
       var offX = ((fi % 3) - 1) * 0.34 / N;                  // grid shifted by up to a third of a cell
       var offY = ((Math.floor(fi / 3) % 3) - 1) * 0.34 / N;
       for (var gy = 0; gy < N; gy++) for (var gx = 0; gx < N; gx++) {
@@ -1056,11 +1206,15 @@
       return g;
     }
     function triggerGrowth() {
-      // Stagnation response: add ONE more stroke to the genome.
-      // Every population member gains a single new stroke, proposed
+      // Stagnation response: add ONE more stroke to the genome —
+      // but only the three fittest genomes grow (grow-best-3). The
+      // rest keep their scores untouched, which saves four full
+      // p5.brush re-evaluations per growth event for the same
+      // match gain: growth effort goes where it is most likely to
+      // pay, and the untouched members stay as diverse material
+      // for crossover. Each growing member's new stroke is proposed
       // at the worst-matching region of the current painting and
-      // coloured from the target there — each member gets its own,
-      // so the population grows without converging. Members are
+      // coloured from the target there, and growing members are
       // re-scored on their real p5.brush renders, because a genome
       // that changed is a genome whose old score no longer counts.
       var mp = matchPct(state.bestScore);
@@ -1073,9 +1227,10 @@
         if (slider) { slider.value = state.maxStrokes; el('maxStrokesOut').textContent = state.maxStrokes; }
       }
       var strokesBefore = state.best ? state.best.length : 0;
-      for (var i = 0; i < state.population.length; i++) {
-        addStroke(state.population[i].genome, true);
-        state.population[i].score = evaluate(state.population[i].genome);
+      var members = state.population.slice().sort(function (p, q) { return p.score - q.score; }).slice(0, 3);
+      for (var i = 0; i < members.length; i++) {
+        addStroke(members[i].genome, true);
+        members[i].score = evaluate(members[i].genome);
         state.growthAdded++;
       }
       syncBest();
@@ -1095,11 +1250,18 @@
     }
     var displayDirty = false;
     function stepGeneration() {
+      // Adaptive operator bookkeeping: decay the branch counters
+      // first (half-life ~100 generations), so the success rates
+      // the reweight reads reflect recent form, not ancient history.
+      var dec = Math.pow(0.5, 1 / 100);
+      for (var oi = 0; oi < 4; oi++) { opSucc[oi] *= dec; opAtt[oi] *= dec; }
       var prevScore = state.bestScore;
       var child = makeOffspring();
       var sc = evaluate(child);
       state.gen++;
+      var accepted = false;
       if (tryInsert(child, sc)) {
+        accepted = true;
         syncBest();
         if (sc <= state.bestScore) bestErrMap.set(errMap);   // new champion — its error map steers worst-stroke targeting
         if (state.bestScore < prevScore) {
@@ -1107,6 +1269,11 @@
           // Snapshot cadence: first snapshot immediately, then every ~20 gens.
           if (state.snapshots.length === 0 || state.gen - state.lastSnapGen >= 20) pushSnapshot();
         }
+      }
+      if (lastBranch >= 0) {
+        opAtt[lastBranch] += 1;
+        if (accepted) opSucc[lastBranch] += 1;
+        if (state.gen % 20 === 0) reweightOperators();
       }
       // Stagnation tracking: only a real score drop resets the clock —
       // endless micro-improvements still count as a plateau.
@@ -1550,9 +1717,11 @@
       state.growthAdded = 0;
       state.growthEvents = []; state.pendingGrowthAdds = 0; state.displayedGen = -1;
       evalMs = 0;
+      // A fresh run relearns the operator odds from scratch.
+      opSucc = [0, 0, 0, 0]; opAtt = [0, 0, 0, 0]; opProbs = OP_BASE.slice(); lastBranch = -1;
       // Seed a diverse founding population: seven wash-and-
-      // block-in founders, each with its own ground wash and its
-      // own offset grid of the target's regional average colours,
+      // notan founders, each with its own ground wash and its own
+      // set of tonal-mass strokes from the target's regions,
       // each scored on its real p5.brush render, so crossover has
       // genuinely different material from generation 0.
       state.population = [];
