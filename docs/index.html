@@ -266,11 +266,11 @@
       <button type="button" class="btn info-back" id="btnBackStudio">← Back to Studio</button>
       <div class="info-prose">
         <h2>How it works</h2>
-        <p>A genetic algorithm evolves a pile of <strong>brush strokes</strong> — position, direction, length, width, pressure, curve, colour, opacity — until their arrangement resembles a source image. Every stroke is painted by <strong>p5.brush</strong>: each candidate genome is brushed onto a small canvas, the painted pixels are read back and scored against the source, and the fittest strokes survive. The large canvas in the Studio is the current champion, painted by the same brush at full size — the score always describes the painting in front of you.</p>
+        <p>A genetic algorithm evolves a pile of <strong>brush strokes</strong> — position, direction, length, width, pressure, curve, colour, opacity — until their arrangement resembles a source image. Every stroke is painted by <strong>p5.brush</strong>: each candidate genome is brushed onto a small canvas, the painted pixels are read back and scored against the source, and the fittest genomes survive. The large canvas in the Studio is the current champion, painted by the same brush at full size — the score always describes the painting in front of you.</p>
         <p><strong>One brush, focused.</strong> The app uses a single brush throughout — the p5.brush <strong>marker</strong> brush at full pigment strength, solid and slightly textured, laid down opaquely so later strokes cover earlier ones like paint over paint. There is no medium or brush picker to distract from how that one brush behaves.</p>
         <p><strong>Brush size is bounded like a real brush — and evolution picks it.</strong> Stroke width is clamped to <strong>2.2%–5.5% of the canvas width</strong> (about 11–28&nbsp;px on the 512&nbsp;px display canvas) and stroke length to <strong>8%–28%</strong>. There is no size control: every stroke's width and length are genes, and mutation, new-stroke proposals and block-in strokes are all clamped to the same limits, so evolution settles on the sizes that score best. Nothing evolves smaller than a fine detail brush you could actually hold, and nothing grows wider or longer than a large flat brush — no pinprick dots, no canvas-wide smears.</p>
         <p><strong>Fitness.</strong> Fitness = pixel error <em>plus</em> an edge/gradient term. Each candidate is painted with p5.brush at 160&nbsp;px, downsampled to 96&nbsp;px, and those painted pixels are compared to the source. Pixel error alone rewards blur; the gradient term pays for strokes that land on edges and run along them.</p>
-        <p><strong>How evolution moves.</strong> Because every candidate costs a full p5.brush render, evolution hill-climbs: one challenger at a time, bred from the current best — mutate a few genes, re-aim a stroke at the worst-matching region, graft on a fresh stroke, occasionally splice in an earlier best genome. The challenger replaces its parent only if its own render scores closer to the source.</p>
+        <p><strong>How evolution moves.</strong> A <strong>population of seven genomes</strong> evolves at once — seven painters, seven canvases. Each founder starts as a <strong>block-in</strong>: a coarse grid laid over the target, one broad stroke per cell in that cell's local average colour, with a different grid size and a different grid offset for each founder — so generation 0 already looks like the image instead of a random splat, and the seven founders still differ enough for crossover to have material to work with. Each generation picks two parents by <strong>tournament selection</strong> (draw three genomes at random, keep the fittest) and breeds a child by <strong>spatial crossover</strong>: a line is drawn across the canvas and the child takes its strokes from one parent on one side of the line, the other parent on the other side — so a genome with a great sky and a genome with a great foreground can produce a child with both. The child is then <strong>mutated</strong> — and mutation is aimed, not random. It finds the stroke sitting on the <strong>biggest remaining error</strong> and fixes that one: recolouring it from the target, dragging it onto the error peak, or resizing it to cover the bad patch. A stroke's colour is never a random guess — whenever a stroke is born, moved or recoloured, its colour is <strong>sampled from the source image where it lands</strong>, so most mutations start close instead of wasting generations un-guessing a bad colour. The child is painted by p5.brush and scored on its own render. To earn a place it must beat the population member most similar to itself, or the current worst; near-clones of a fitter genome are turned away. That crowding rule keeps the seven genomes genuinely different from each other, which is what keeps crossover useful — a population of identical champions would have nothing to combine.</p>
         <p><strong>The fitness chart.</strong> The chart in the Studio keeps the <em>complete</em> history of the run — every generation from 0 to now, never a sliding window — plotted at full width so early block-in gains and later slow refinement are both visible.</p>
       </div>
 
@@ -343,7 +343,7 @@
         <div class="verdict">
           <h3 style="margin-bottom:8px">The verdict on the idea</h3>
           <p><strong>It works, and strokes are the right primitive</strong> — better than the polygons in Roger Alsing's famous genetic Mona Lisa, because a stroke already carries painterly information (direction, taper, texture) that a polygon has to fake. The two hard parts are exactly the ones you flagged: the <em>renderer</em> decides whether it looks like paint, and the <em>fitness function</em> decides whether it looks like the subject.</p>
-          <p>The design trades speed for brushwork. p5.brush is built for texture, and every candidate costs a full painting, so evolution <strong>hill-climbs</strong> — one challenger at a time against the reigning best — instead of running a population-wide tournament, and genomes stay in the low hundreds of strokes. Fitness is read at 160&nbsp;px, which keeps generations moving while strokes are still large; the display canvas repaints the champion at 512&nbsp;px. Stroke count adapts as it goes: when the best score goes ~40 generations without a meaningful gain <em>and</em> the match is still below 90%, a growth spurt adds finer strokes aimed at the worst-matching regions, and growth pauses once the painting is ready. Natural next steps: raise the fitness resolution as genomes mature, and use p5.brush vector fields to bend stroke flow around the subject's forms.</p>
+          <p>The design trades speed for brushwork. p5.brush is built for texture, and every candidate costs a full painting, so the population stays small — <strong>seven genomes</strong> in a steady-state tournament, one child per generation competing for a place — and genomes stay in the low hundreds of strokes. Fitness is read at 160&nbsp;px, which keeps generations moving while strokes are still large; the display canvas repaints the champion at 512&nbsp;px. Stroke count adapts as it goes: when the best score goes ~40 generations without a meaningful gain <em>and</em> the match is still below 90%, a growth spurt adds finer strokes aimed at the worst-matching regions, and growth pauses once the painting is ready. Natural next steps: raise the fitness resolution as genomes mature, and use p5.brush vector fields to bend stroke flow around the subject's forms.</p>
         </div>
       </section>
 
@@ -409,12 +409,17 @@
     var el = function (id) { return document.getElementById(id); };
 
     /* ---------------- state ---------------- */
+    var POP_SIZE = 7;             // genomes alive at once in the population
+    var TOURNAMENT_SIZE = 3;      // genomes drawn per tournament selection
+    var CROWD_SIMILAR = 0.045;    // signature distance under which a child challenges its lookalike first
+    var CLONE_DIST = 0.012;       // signature distance under which a child counts as a clone of a member
     var READY_MATCH = 90;         // % match at which the painting counts as "ready" — growth stops
     var STAGNANT_GENS = 40;       // generations without a meaningful gain before growth fires
     var MEANINGFUL_GAIN = 0.0005; // best-score drop that counts as real progress
     var GROWTH_COOLDOWN = 35;     // minimum generations between growth spurts
     var state = {
       playing: true, gen: 0, best: null, bestScore: Infinity, blankScore: 0,
+      population: [],
       maxStrokes: 480, history: [], snapshots: [],
       lastSnapGen: -100,
       adaptiveGrowth: true, stagnantGens: 0, lastGrowthGen: -1000, growthSpurts: 0,
@@ -436,6 +441,7 @@
     var gradAng = new Float32Array(SAMPLE * SAMPLE);
     var gradMag = new Float32Array(SAMPLE * SAMPLE);
     var errMap = new Float32Array(SCORE * SCORE);
+    var bestErrMap = new Float32Array(SCORE * SCORE);   // error map of the current champion — steers worst-stroke targeting
     var hotPixels = [];
 
     function coverDraw(ctx, img, size) {
@@ -644,24 +650,80 @@
         return { x: s.x, y: s.y, dx: s.dx, dy: s.dy, w: s.w, r: s.r, g: s.g, b: s.b, a: s.a, p: s.p, curve: s.curve, seed: s.seed };
       });
     }
+    function resampleColour(s, amt) {
+      // A stroke's colour comes from the target where the stroke
+      // lands — sampled at its midpoint — never from a random draw,
+      // so a born, moved or recoloured stroke starts close instead
+      // of wasting generations un-guessing a bad colour.
+      var col = sampleColor(s.x + s.dx * 0.5, s.y + s.dy * 0.5, s.w * 0.7), j = STYLE.jitter;
+      s.r = clamp(lerp(s.r, col.r, amt) + gauss() * j, 0, 1);
+      s.g = clamp(lerp(s.g, col.g, amt) + gauss() * j, 0, 1);
+      s.b = clamp(lerp(s.b, col.b, amt) + gauss() * j, 0, 1);
+    }
     function mutateStroke(s, big) {
       var m = big ? 2.2 : 1;
       var t = Math.random();
-      if (t < 0.30) { s.x = clamp(s.x + gauss() * 0.03 * m, 0, 1); s.y = clamp(s.y + gauss() * 0.03 * m, 0, 1); }
+      if (t < 0.30) { s.x = clamp(s.x + gauss() * 0.03 * m, 0, 1); s.y = clamp(s.y + gauss() * 0.03 * m, 0, 1); resampleColour(s, 0.65); }
       else if (t < 0.50) {
         var ang = Math.atan2(s.dy, s.dx) + gauss() * 0.3 * m;
         var len = Math.sqrt(s.dx * s.dx + s.dy * s.dy) * clamp(1 + gauss() * 0.25 * m, 0.3, 2.2);
         s.dx = Math.cos(ang) * len; s.dy = Math.sin(ang) * len;
+        resampleColour(s, 0.4);   // the stroke lands somewhere new — take that spot's colour with it
       }
-      else if (t < 0.68) {
-        var col = sampleColor(s.x, s.y, s.w * 0.7), j = STYLE.jitter;
-        s.r = clamp(lerp(s.r, col.r, 0.7) + gauss() * j, 0, 1);
-        s.g = clamp(lerp(s.g, col.g, 0.7) + gauss() * j, 0, 1);
-        s.b = clamp(lerp(s.b, col.b, 0.7) + gauss() * j, 0, 1);
-      }
+      else if (t < 0.68) { resampleColour(s, 0.9); }
       else if (t < 0.82) { s.w = clamp(s.w * (1 + gauss() * 0.3 * m), STROKE_W_MIN, STROKE_W_MAX); s.p = clamp(s.p + gauss() * 0.2, 0.1, 1); }
       else if (t < 0.92) { s.curve = clamp(s.curve + gauss() * 0.12 * m, -0.6, 0.6); s.seed = Math.random(); }
       else { var st = STYLE; s.a = clamp(s.a + gauss() * 0.12, st.alpha[0] * 0.6, 1); }
+      return clampStrokeSize(s);
+    }
+    /* ---------------- worst-stroke targeting ----------------
+       Mutation shouldn't spend itself on a random stroke that was
+       probably fine. Using the champion's error map (bestErrMap,
+       refreshed whenever a new champion is crowned), find the
+       stroke sitting on the biggest remaining error and fix that
+       one: recolour it from the target where it lands, drag it
+       onto the local error peak, or resize it to cover the patch. */
+    function strokeErrorAt(s) {
+      var sum = 0, n = 0;
+      for (var t = 0; t <= 1.0001; t += 0.2) {
+        var px = clamp(Math.floor((s.x + s.dx * t) * SCORE), 0, SCORE - 1);
+        var py = clamp(Math.floor((s.y + s.dy * t) * SCORE), 0, SCORE - 1);
+        sum += bestErrMap[py * SCORE + px]; n++;
+      }
+      return n ? sum / n : 0;
+    }
+    function worstStrokeIndex(g) {
+      var bi = -1, be = -1;
+      for (var i = 0; i < g.length; i++) { var e = strokeErrorAt(g[i]); if (e > be) { be = e; bi = i; } }
+      return bi;
+    }
+    function fixStroke(s, big) {
+      var m = big ? 1.8 : 1;
+      var t = Math.random();
+      if (t < 0.4) {
+        resampleColour(s, 0.92);   // recolour from the target where it lands
+      } else if (t < 0.7) {
+        // move: find the worst pixel near the stroke's midpoint and
+        // drag the stroke most of the way onto it, then re-sample
+        // its colour at the new landing spot
+        var mx = s.x + s.dx * 0.5, my = s.y + s.dy * 0.5;
+        var R = Math.max(2, Math.round(0.10 * SCORE * m));
+        var cxp = clamp(Math.round(mx * SCORE), 0, SCORE - 1), cyp = clamp(Math.round(my * SCORE), 0, SCORE - 1);
+        var bx = cxp, by = cyp, be = -1;
+        for (var yy = Math.max(0, cyp - R); yy <= Math.min(SCORE - 1, cyp + R); yy++)
+          for (var xx = Math.max(0, cxp - R); xx <= Math.min(SCORE - 1, cxp + R); xx++) {
+            var e = bestErrMap[yy * SCORE + xx];
+            if (e > be) { be = e; bx = xx; by = yy; }
+          }
+        s.x = clamp(s.x + ((bx + 0.5) / SCORE - mx) * 0.65, 0, 1);
+        s.y = clamp(s.y + ((by + 0.5) / SCORE - my) * 0.65, 0, 1);
+        resampleColour(s, 0.5);
+      } else {
+        // resize: stretch or shrink the stroke to cover the bad patch
+        var f = clamp(1 + gauss() * 0.35 * m, 0.55, 1.9);
+        s.dx *= f; s.dy *= f;
+        s.w = clamp(s.w * clamp(1 + gauss() * 0.3, 0.7, 1.5), STROKE_W_MIN, STROKE_W_MAX);
+      }
       return clampStrokeSize(s);
     }
     function addStroke(child, focused) {
@@ -669,14 +731,114 @@
       if (child.length >= state.maxStrokes) child.splice(randi(0, child.length - 1), 1);
       child.splice(randi(Math.max(0, child.length - 30), child.length), 0, ns);
     }
-    function makeChallenger() {
-      // Hill-climbing: one challenger bred from the reigning best.
-      // Most challengers touch only a few genes, so the p5.brush
-      // render — and therefore the score — changes locally.
-      var parent = state.best;
-      var child = cloneGenome(parent);
+    /* ---------------- population: selection, crossover, diversity ----------------
+       A small population of genomes evolves at once. Each generation
+       breeds ONE child (steady-state): two parents chosen by
+       tournament, combined by spatial crossover, then mutated. The
+       child competes for a place — against the population member
+       most similar to it first (deterministic crowding), then
+       against the worst — so the population keeps genuinely
+       different genomes instead of collapsing into clones of the
+       champion, and crossover keeps having material to work with. */
+    function tournamentSelect(excludeIdx) {
+      // Draw a few genomes at random; the fittest of the draw wins.
+      // Small tournaments keep selection pressure gentle enough that
+      // weaker-but-different genomes survive to contribute strokes.
+      var bestIdx = -1, bestScore = Infinity;
+      var picked = 0, guard = 0;
+      while (picked < TOURNAMENT_SIZE && guard < 40) {
+        guard++;
+        var idx = randi(0, state.population.length - 1);
+        if (idx === excludeIdx) continue;
+        picked++;
+        var sc = state.population[idx].score;
+        if (sc < bestScore) { bestScore = sc; bestIdx = idx; }
+      }
+      if (bestIdx < 0) bestIdx = excludeIdx === 0 ? 1 : 0;
+      return bestIdx;
+    }
+    function genomeSignature(g) {
+      // Regional fingerprint: mean stroke colour in each cell of a
+      // 3×3 grid, plus stroke count. Two genomes with different
+      // strengths — a good sky vs a good foreground — fingerprint
+      // differently even though their global averages match.
+      var CELLS = 3, NC = CELLS * CELLS;
+      var sr = new Float32Array(NC), sg = new Float32Array(NC), sb = new Float32Array(NC), cnt = new Float32Array(NC);
+      for (var i = 0; i < g.length; i++) {
+        var s = g[i];
+        var cx = clamp(Math.floor((s.x + s.dx * 0.5) * CELLS), 0, CELLS - 1);
+        var cy = clamp(Math.floor((s.y + s.dy * 0.5) * CELLS), 0, CELLS - 1);
+        var ci = cy * CELLS + cx;
+        sr[ci] += s.r; sg[ci] += s.g; sb[ci] += s.b; cnt[ci]++;
+      }
+      var vec = new Float32Array(NC * 3);
+      for (var c = 0; c < NC; c++) {
+        if (cnt[c] > 0) { vec[c * 3] = sr[c] / cnt[c]; vec[c * 3 + 1] = sg[c] / cnt[c]; vec[c * 3 + 2] = sb[c] / cnt[c]; }
+        else { vec[c * 3] = PAPER_RGB[0]; vec[c * 3 + 1] = PAPER_RGB[1]; vec[c * 3 + 2] = PAPER_RGB[2]; }
+      }
+      return { vec: vec, n: g.length };
+    }
+    function signatureDistance(a, b) {
+      var sum = 0;
+      for (var i = 0; i < a.vec.length; i++) { var d = a.vec[i] - b.vec[i]; sum += d * d; }
+      return Math.sqrt(sum / a.vec.length) + Math.abs(a.n - b.n) / 600;
+    }
+    function populationDiversity() {
+      var pop = state.population;
+      if (pop.length < 2) return 0;
+      var sigs = pop.map(function (m) { return genomeSignature(m.genome); });
+      var sum = 0, pairs = 0;
+      for (var i = 0; i < sigs.length; i++) for (var j = i + 1; j < sigs.length; j++) { sum += signatureDistance(sigs[i], sigs[j]); pairs++; }
+      return pairs ? sum / pairs : 0;
+    }
+    function spatialCrossover(a, b) {
+      // A line across the canvas: strokes whose centre falls on one
+      // side come from parent A, the other side from parent B — a
+      // great sky and a great foreground can end up in one child.
+      // Strokes keep their parents' relative paint order (merged by
+      // index fraction), so layering still reads like painting.
+      var vertical = Math.random() < 0.5;
+      var split = rand(0.3, 0.7);
+      var aSide = Math.random() < 0.5;   // which parent takes the low-coordinate side
+      function sideOf(s) {
+        var c = vertical ? (s.x + s.dx * 0.5) : (s.y + s.dy * 0.5);
+        return (c < split) === aSide;
+      }
+      var picked = [];
+      var i, s;
+      for (i = 0; i < a.length; i++) { s = a[i]; if (sideOf(s)) picked.push({ s: s, ord: i / Math.max(1, a.length) }); }
+      for (i = 0; i < b.length; i++) { s = b[i]; if (!sideOf(s)) picked.push({ s: s, ord: i / Math.max(1, b.length) }); }
+      var avgLen = (a.length + b.length) / 2;
+      if (picked.length < avgLen * 0.4 || picked.length === 0) {
+        // Degenerate split (one parent barely paints that region):
+        // fall back to uniform crossover over the stroke list.
+        picked = [];
+        var n = Math.max(a.length, b.length);
+        for (i = 0; i < n; i++) {
+          var src = Math.random() < 0.5 ? a : b;
+          if (i < src.length) picked.push({ s: src[i], ord: i / n });
+        }
+      }
+      picked.sort(function (p, q) { return p.ord - q.ord; });
+      var child = picked.map(function (p) {
+        var c = p.s;
+        return { x: c.x, y: c.y, dx: c.dx, dy: c.dy, w: c.w, r: c.r, g: c.g, b: c.b, a: c.a, p: c.p, curve: c.curve, seed: c.seed };
+      });
+      while (child.length > state.maxStrokes) child.splice(randi(0, child.length - 1), 1);
+      return child;
+    }
+    function makeOffspring() {
+      // One child per generation: tournament parents → spatial
+      // crossover → mutation. Most children differ from their
+      // parents in only a few strokes beyond the crossover, so the
+      // p5.brush render — and therefore the score — changes locally.
+      var pop = state.population;
+      var ia = tournamentSelect(-1);
+      var ib = tournamentSelect(ia);
+      var child = spatialCrossover(pop[ia].genome, pop[ib].genome);
       state.pendingGrowthAdds = 0;
-      // Growth spurt in progress: most challengers graft one or two
+      if (!child.length) child = cloneGenome(pop[ia].genome);
+      // Growth spurt in progress: most children graft one or two
       // fresh, finer strokes aimed at the worst-matching regions.
       if (state.adaptiveGrowth && state.growthBurstRemaining > 0 && state.gen < state.growthBoostUntil && Math.random() < 0.72) {
         var gAdds = Math.min(state.growthBurstRemaining, randi(1, 2));
@@ -687,40 +849,85 @@
       }
       var roll = Math.random();
       if (roll < 0.55) {
+        // Worst-stroke targeting: the first repair always goes to
+        // the stroke sitting on the biggest error — fix that one
+        // instead of mutating a random, probably-fine stroke.
         var nMut = randi(1, 3);
         for (var k = 0; k < nMut; k++) {
+          if (k === 0) {
+            var wIdx = worstStrokeIndex(child);
+            if (wIdx >= 0) { child[wIdx] = fixStroke(child[wIdx], Math.random() < 0.10); continue; }
+          }
           var idx = randi(0, child.length - 1);
           child[idx] = mutateStroke(child[idx], Math.random() < 0.10);
         }
       } else if (roll < 0.82) {
         addStroke(child, Math.random() < 0.5);
-        if (Math.random() < 0.3 && child.length > 1) { var mIdx = randi(0, child.length - 1); child[mIdx] = mutateStroke(child[mIdx], false); }
+        if (Math.random() < 0.3 && child.length > 1) {
+          var mIdx = worstStrokeIndex(child);
+          if (mIdx >= 0) child[mIdx] = fixStroke(child[mIdx], false);
+        }
       } else if (roll < 0.88 && child.length > 50) {
         child.splice(randi(0, child.length - 1), 1);   // deletion mutation
-      } else if (roll < 0.94 && state.snapshots.length > 0) {
-        // crossover: splice the reigning best with an earlier snapshot
-        var other = state.snapshots[randi(0, state.snapshots.length - 1)].genome;
-        var cut = randi(0, Math.min(child.length, other.length));
-        var tail = cloneGenome(other.slice(cut, cut + (child.length - cut)));
-        child = child.slice(0, cut).concat(tail);
-        if (child.length < parent.length * 0.5) child = cloneGenome(parent);
       } else {
-        var bIdx = randi(0, child.length - 1);
-        child[bIdx] = mutateStroke(child[bIdx], true);
+        var bIdx = worstStrokeIndex(child);
+        if (bIdx >= 0) child[bIdx] = fixStroke(child[bIdx], true);
       }
       return child;
     }
-    function seedGenome() {
-      // Block-in pass, like a painter: a grid of broad strokes in each
-      // region's local colour, so the composition exists from generation 0
-      // and evolution refines it instead of discovering coverage by luck.
+    function syncBest() {
+      // The population is kept sorted best-first; state.best mirrors
+      // the champion for the display render and the stats.
+      state.population.sort(function (p, q) { return p.score - q.score; });
+      if (state.population.length) {
+        state.best = state.population[0].genome;
+        state.bestScore = state.population[0].score;
+      }
+    }
+    function tryInsert(child, childScore) {
+      // Deterministic crowding: a child first challenges the member
+      // most similar to it, so a lineage has to beat its own niche,
+      // not just the global worst — distinct lineages survive. If it
+      // isn't similar to anyone, it challenges the worst member.
+      // Near-clones of a fitter member are rejected outright.
+      var pop = state.population;
+      var sig = genomeSignature(child);
+      var simIdx = -1, simDist = Infinity;
+      for (var i = 0; i < pop.length; i++) {
+        var d = signatureDistance(sig, genomeSignature(pop[i].genome));
+        if (d < simDist) { simDist = d; simIdx = i; }
+      }
+      if (simIdx >= 0 && simDist < CROWD_SIMILAR && childScore < pop[simIdx].score) {
+        pop[simIdx] = { genome: child, score: childScore };
+        return true;
+      }
+      if (simDist < CLONE_DIST) return false;   // a clone of someone fitter — no diversity gained
+      var worstIdx = pop.length - 1;
+      if (childScore < pop[worstIdx].score) {
+        pop[worstIdx] = { genome: child, score: childScore };
+        return true;
+      }
+      return false;
+    }
+    function seedGenome(founderIdx) {
+      // Block-in pass, like a painter: a coarse grid over the target,
+      // one broad stroke per cell in that cell's local average
+      // colour, so generation 0 already looks like the image and
+      // evolution refines it instead of discovering coverage by
+      // luck. Each founder gets a different grid size and a
+      // different grid offset, so the seven founders block the same
+      // image in seven genuinely different ways and the population
+      // stays diverse.
       var g = [];
       var st = STYLE;
-      var N = 6;
+      var fi = founderIdx || 0;
+      var N = 5 + (fi % 3);                                  // 5×5, 6×6 or 7×7 grid, by founder
+      var offX = ((fi % 3) - 1) * 0.34 / N;                  // grid shifted by up to a third of a cell
+      var offY = ((Math.floor(fi / 3) % 3) - 1) * 0.34 / N;
       for (var gy = 0; gy < N; gy++) for (var gx = 0; gx < N; gx++) {
         for (var rep = 0; rep < 2; rep++) {
-          var cx = (gx + 0.5) / N + gauss() * 0.02;
-          var cy = (gy + 0.5) / N + gauss() * 0.02;
+          var cx = clamp((gx + 0.5) / N + offX + gauss() * 0.02, 0.02, 0.98);
+          var cy = clamp((gy + 0.5) / N + offY + gauss() * 0.02, 0.02, 0.98);
           var si = clamp(Math.round(cy * (SAMPLE - 1)), 0, SAMPLE - 1) * SAMPLE + clamp(Math.round(cx * (SAMPLE - 1)), 0, SAMPLE - 1);
           var ang = gradMag[si] > 0.18 ? gradAng[si] + Math.PI / 2 + gauss() * 0.3 : rand(0, Math.PI * 2);
           var len = rand(0.16, 0.26);
@@ -764,16 +971,18 @@
     var displayDirty = false;
     function stepGeneration() {
       var prevScore = state.bestScore;
-      var child = makeChallenger();
+      var child = makeOffspring();
       var sc = evaluate(child);
       state.gen++;
-      if (sc < state.bestScore) {
+      if (tryInsert(child, sc)) {
         if (state.pendingGrowthAdds > 0) state.growthAdded += state.pendingGrowthAdds;
-        state.best = child; state.bestScore = sc;
-        displayDirty = true;
-        // The eval canvas still holds this genome's scored render —
-        // snapshot cadence: first snapshot immediately, then every ~20 gens.
-        if (state.snapshots.length === 0 || state.gen - state.lastSnapGen >= 20) pushSnapshot();
+        syncBest();
+        if (sc <= state.bestScore) bestErrMap.set(errMap);   // new champion — its error map steers worst-stroke targeting
+        if (state.bestScore < prevScore) {
+          displayDirty = true;
+          // Snapshot cadence: first snapshot immediately, then every ~20 gens.
+          if (state.snapshots.length === 0 || state.gen - state.lastSnapGen >= 20) pushSnapshot();
+        }
       }
       // Stagnation tracking: only a real score drop resets the clock —
       // endless micro-improvements still count as a plateau.
@@ -795,7 +1004,7 @@
     }
     function pushSnapshot() {
       state.snapshots.push({ genome: cloneGenome(state.best), score: state.bestScore, gen: state.gen });
-      if (state.snapshots.length > 4) state.snapshots.splice(1, 1); // keep first + latest 3 for crossover
+      if (state.snapshots.length > 4) state.snapshots.splice(1, 1); // keep first + latest 3
       state.lastSnapGen = state.gen;
     }
 
@@ -858,7 +1067,8 @@
       el('stFit').textContent = isFinite(state.bestScore) ? mp.toFixed(1) + '%' : '—';
       el('capFit').textContent = 'fitness ' + (isFinite(state.bestScore) ? mp.toFixed(1) + '%' : '—') + ' · gen ' + state.gen;
       el('stStrokes').textContent = state.best ? state.best.length : 0;
-      setEvoStatus('p5.brush fitness render ' + EVAL + 'px, scored at ' + SCORE + 'px · ~' +
+      setEvoStatus('population ' + state.population.length + ' genomes · diversity ' +
+        populationDiversity().toFixed(2) + ' · p5.brush fitness render ' + EVAL + 'px, scored at ' + SCORE + 'px · ~' +
         (evalMs ? Math.round(evalMs) : '—') + ' ms per candidate · display shows gen ' +
         (state.displayedGen >= 0 ? state.displayedGen.toLocaleString() : '—'));
       drawChart();
@@ -992,8 +1202,22 @@
       state.growthAdded = 0; state.growthBoostUntil = -1; state.growthBurstRemaining = 0;
       state.growthEvents = []; state.pendingGrowthAdds = 0; state.displayedGen = -1;
       evalMs = 0;
-      state.best = seedGenome();
-      state.bestScore = evaluate(state.best);
+      // Seed a diverse founding population: seven block-in
+      // founders, each from its own offset grid of the target's
+      // local average colours, each scored on its real p5.brush
+      // render, so crossover has genuinely different material
+      // from generation 0.
+      state.population = [];
+      var bestFounderScore = Infinity;
+      for (var pi = 0; pi < POP_SIZE; pi++) {
+        var founder = seedGenome(pi);
+        var fScore = evaluate(founder);
+        state.population.push({ genome: founder, score: fScore });
+        // Keep the champion's error map current — it steers
+        // worst-stroke targeting from the first generation on.
+        if (fScore < bestFounderScore) { bestFounderScore = fScore; bestErrMap.set(errMap); }
+      }
+      syncBest();
       pushSnapshot();
       displayDirty = true;
       startDisplayRender();
