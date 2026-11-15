@@ -24,6 +24,16 @@ Crucially, fitness is measured on the **p5.brush output itself** — every candi
 - **Sources:** four built-in images, including Van Gogh's The Starry Night, or upload your own photo.
 - **Download:** paint the champion at 1024px as a PNG.
 
+## Next steps
+
+The evolution side is in good shape: the current build — adaptive operator selection, notan founders, grow-best-3, and memetic batch repair — is validated on the live app, reaching 66.7% match on The Starry Night at generation 1,000. The next gap is the brush model: how the paint itself looks.
+
+Right now every stroke is a clean p5.brush spline. There is no paint volume, no bristle split, no loading and running dry along a stroke, no wet blending where strokes overlap, and no interaction with the canvas tooth. The match percentage can be high while the painting still reads as flat, poster-like marks rather than real paint.
+
+The direction is a more physical paint model, in the spirit of bristle-level simulation — e.g. Wetbrush (Chen, Kim, Ito & Wang, SIGGRAPH Asia 2015), which simulates brush bristles and paint liquid on the GPU. A full simulation like that is research-grade work; the realistic path here is staged: bristle streaks inside each stroke, paint that loads and depletes along a stroke's length, dry-brush breakup at low pressure, and wet-edge darkening where strokes overlap. Each would change the look a lot even with the same evolution driving it.
+
+That is a future direction, not current work.
+
 ## Run it
 
 Live at https://adamstirtan.github.io/p5-genetic-painter/ (GitHub Pages serves the `docs/` folder), or open `docs/index.html` in a browser (WebGL2 required). The app is a single self-contained file.
