@@ -190,6 +190,10 @@
       .verdict p + p { margin-top: 10px; }
       footer { margin-top: 44px; border-top: 1px solid var(--line); padding-top: 14px; font-size: 13px; color: var(--muted); }
       .gl-fail { display: none; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); font-size: 14px; margin-top: 12px; }
+      .tl-result { margin-top: 10px; }
+      .tl-result video { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 8px; border: 1px solid var(--line); background: #111; object-fit: cover; }
+      .tl-result-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+      .tl-result-meta { font-size: 12.5px; color: var(--muted); }
       a { color: var(--accent); }
     </style>
   </head>
@@ -258,6 +262,13 @@
             </div>
             <p class="hint mono" id="evoStatus" aria-live="polite" style="margin-top:8px"></p>
             <p class="hint mono" id="tlStatus" aria-live="polite" style="margin-top:4px"></p>
+            <div class="tl-result" id="tlResult" hidden>
+              <video id="tlVideo" controls playsinline preload="metadata" aria-label="Timelapse video preview"></video>
+              <div class="tl-result-actions">
+                <button type="button" class="btn primary" id="btnDownloadVideo">Download video</button>
+                <span class="tl-result-meta mono" id="tlVideoMeta"></span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -451,14 +462,19 @@
        because growth events reset the growth clock but shouldn't
        reset this one), or at TL_MAX_GEN generations as a safety
        cap. It can also be stopped early by hand. On stop, the
-       frames are assembled into a WebM at TL_FPS in the browser
-       and downloaded. */
+       frames are assembled into a WebM at TL_FPS in the browser.
+       An automatic download is attempted, and the finished video
+       is also shown as a preview with a persistent Download video
+       button: its blob and object URL are kept alive until the
+       next recording begins, so it can be saved by hand at any
+       time after assembly (the auto-download alone proved
+       unreliable and left no way to get the video again). */
     var TL_FRAME_EVERY = 25;
     var TL_STOP_STAGNANT = 300;
     var TL_MAX_GEN = 10000;
     var TL_FPS = 12;
     var TL_SIZE = 512;
-    var tl = { recording: false, assembling: false, frames: [], stagnantGens: 0 };
+    var tl = { recording: false, assembling: false, frames: [], stagnantGens: 0, videoBlob: null, videoUrl: null, videoName: '' };
     var tlCanvas = document.createElement('canvas'); tlCanvas.width = TL_SIZE; tlCanvas.height = TL_SIZE;
 
     /* ---------------- target sampling ---------------- */
@@ -1165,6 +1181,45 @@
       else if (tl.recording) { b.textContent = 'Stop & make video'; b.disabled = false; b.classList.add('recording'); }
       else { b.textContent = 'Record timelapse'; b.disabled = false; b.classList.remove('recording'); }
     }
+    function clearTlVideo() {
+      // Revoke and forget any finished video — called only when a
+      // new recording begins, so the preview and Download video
+      // button otherwise stay alive indefinitely after assembly.
+      if (tl.videoUrl) { try { URL.revokeObjectURL(tl.videoUrl); } catch (err) { /* ignore */ } }
+      tl.videoBlob = null; tl.videoUrl = null; tl.videoName = '';
+      var wrap = el('tlResult'); if (wrap) wrap.hidden = true;
+      var vid = el('tlVideo');
+      if (vid) { try { vid.pause(); } catch (err) { /* ignore */ } vid.removeAttribute('src'); try { vid.load(); } catch (err) { /* ignore */ } }
+      var meta = el('tlVideoMeta'); if (meta) meta.textContent = '';
+    }
+    function showTlVideo(blob, mimeType, frameCount) {
+      // Keep the blob and ONE object URL alive until the next
+      // recording starts — the preview and the manual download
+      // button both use this same URL, and it is never revoked
+      // on a timer or after a click.
+      if (tl.videoUrl) { try { URL.revokeObjectURL(tl.videoUrl); } catch (err) { /* ignore */ } }
+      tl.videoBlob = blob;
+      tl.videoUrl = URL.createObjectURL(blob);
+      var isMp4 = (mimeType || blob.type || '').indexOf('mp4') !== -1;
+      tl.videoName = 'genetic-painting-timelapse.' + (isMp4 ? 'mp4' : 'webm');
+      var vid = el('tlVideo');
+      if (vid) vid.src = tl.videoUrl;
+      var meta = el('tlVideoMeta');
+      if (meta) meta.textContent = frameCount + ' frames · ' + TL_FPS + ' fps · ~' + Math.max(1, Math.round(frameCount / TL_FPS)) + 's';
+      var wrap = el('tlResult'); if (wrap) wrap.hidden = false;
+      return tl.videoUrl;
+    }
+    function downloadTlVideo() {
+      // Real user-gesture download — the same anchor-click pattern
+      // as Download PNG, which reliably produces a file. Uses the
+      // persistent object URL and does NOT revoke it afterwards,
+      // so the button can be clicked again at any time.
+      if (!tl.videoUrl) return;
+      var a = document.createElement('a');
+      a.href = tl.videoUrl;
+      a.download = tl.videoName || 'genetic-painting-timelapse.webm';
+      document.body.appendChild(a); a.click(); a.remove();
+    }
     function captureTlFrame() {
       // Paint the current champion through the same p5.brush code
       // as every other render, onto the timelapse canvas, and keep
@@ -1181,6 +1236,7 @@
     }
     function startTimelapse() {
       if (!brushReady || tl.assembling) return;
+      clearTlVideo();   // a new recording replaces any finished video — its URL stays alive until exactly here
       restart();   // fresh run from generation 0 (also cancels any recording already in progress)
       tl.frames = []; tl.stagnantGens = 0; tl.recording = true;
       state.playing = true;
@@ -1242,15 +1298,21 @@
       rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = function () {
         var blob = new Blob(chunks, { type: mime || 'video/webm' });
-        var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'genetic-painting-timelapse.webm';
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+        var videoUrl = showTlVideo(blob, mime || blob.type || 'video/webm', frames.length);
+        // Keep the automatic download attempt as a convenience,
+        // using the persistent URL — but do not revoke it, and do
+        // not rely on it: the preview + Download video button
+        // below stay available until the next recording starts.
+        try {
+          var a = document.createElement('a');
+          a.href = videoUrl;
+          a.download = tl.videoName || 'genetic-painting-timelapse.webm';
+          document.body.appendChild(a); a.click(); a.remove();
+        } catch (err) { /* the manual button below is the reliable path */ }
         tl.assembling = false;
         updateTlUI();
-        setTlStatus('Timelapse saved — ' + frames.length + ' frames at ' + TL_FPS + ' fps, about ' +
-          Math.max(1, Math.round(frames.length / TL_FPS)) + ' seconds of video. Press Evolve to keep painting.');
+        setTlStatus('Timelapse ready — ' + frames.length + ' frames at ' + TL_FPS + ' fps, about ' +
+          Math.max(1, Math.round(frames.length / TL_FPS)) + ' seconds of video. Preview it below, and use Download video to save it — it stays here until the next recording. Press Evolve to keep painting.');
       };
       var i = 0, started = false;
       setTlStatus('Assembling timelapse video — frame 0 of ' + frames.length + '…');
@@ -1548,6 +1610,9 @@
       if (tl.assembling) return;
       if (tl.recording) stopTimelapse(true);
       else startTimelapse();
+    });
+    el('btnDownloadVideo').addEventListener('click', function () {
+      downloadTlVideo();
     });
     el('maxStrokes').addEventListener('input', function (e) {
       state.maxStrokes = parseInt(e.target.value, 10);
