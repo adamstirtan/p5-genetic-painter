@@ -16,7 +16,7 @@ Crucially, fitness is measured on the **p5.brush output itself** — every candi
 
 ## Run it
 
-Open `index.html` in a browser (WebGL2 required), or enable GitHub Pages on this repo — the app is a single self-contained file.
+Live at https://adamstirtan.github.io/p5-genetic-painter/ (GitHub Pages serves the `docs/` folder), or open `docs/index.html` in a browser (WebGL2 required). The app is a single self-contained file.
 
 ## Credits
 
