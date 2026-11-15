@@ -2,6 +2,10 @@
 
 > Evolve a painting from a photo: a genetic algorithm breeds brush strokes — colour, position, curve, pressure — and scores each generation on the actual painted pixels, rendered with p5.brush.
 
+![The Starry Night, mid-evolution at generation 476](docs/starry-night-in-progress.png)
+
+*Van Gogh's The Starry Night, mid-evolution — generation 476.*
+
 ## How it works
 
 The genome is a set of brush strokes. Each stroke carries genes for colour, start and end location, curve, width, pressure, opacity, and a random seed. Evolution hill-climbs one challenger at a time: a mutated genome is painted, scored against the source image, and kept only if it matches better.
