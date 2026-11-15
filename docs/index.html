@@ -312,7 +312,7 @@
           <div class="card">
             <div class="swatch" style="background:linear-gradient(180deg,#31435f,#7d94b5 48%,#c8d4e2 52%,#5d748f)"></div>
             <h3>Fitness that pays for edges</h3>
-            <p>Scoring adds a <strong>Sobel gradient term</strong>: a stroke only wins if the painting's edges approach the source's edges. New strokes are also <strong>aimed</strong> — seeded at high-error regions, aligned to the local image gradient, and coloured from a local sample — so evolution spends its budget where a painter would look.</p>
+            <p>Scoring adds a <strong>Sobel gradient term</strong>: a stroke only wins if the painting's edges approach the source's edges. New strokes are also <strong>aimed</strong> — every new stroke aims at a hot (worst-error) pixel, aligned to the local image gradient, and coloured from a local sample — so evolution spends its budget where a painter would look.</p>
           </div>
           <div class="card">
             <div class="swatch" style="background:radial-gradient(circle at 40% 45%,#7fb2c9 0 30%,#4d84a6 62%,#2c5a7d 100%)"></div>
@@ -789,7 +789,7 @@
     function proposeStroke(focused) {
       var st = STYLE;
       var x, y;
-      if (hotPixels.length && Math.random() < (focused ? 0.94 : 0.72)) {
+      if (hotPixels.length && Math.random() < (focused ? 1.0 : 1.0)) {
         var hp = hotPixels[randi(0, hotPixels.length - 1)];
         x = (hp % SCORE) / SCORE + gauss() * (focused ? 0.015 : 0.03);
         y = Math.floor(hp / SCORE) / SCORE + gauss() * (focused ? 0.015 : 0.03);
