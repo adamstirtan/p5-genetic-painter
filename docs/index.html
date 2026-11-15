@@ -160,12 +160,6 @@
       .info-prose p { color: var(--muted); font-size: 15.5px; margin-top: 10px; }
       .info-prose p strong { color: var(--ink); }
       .info-back { margin-bottom: 18px; }
-      .lineage { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
-      .lineage button { padding: 0; border: 2px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); cursor: pointer; line-height: 0; }
-      .lineage button:hover { border-color: var(--accent); }
-      .lineage canvas { width: 100%; aspect-ratio: 1/1; display: block; }
-      .lineage .lf { font-size: 11px; color: var(--muted); text-align: center; margin-top: 3px; font-family: "IBM Plex Mono", monospace; }
-
       section.below { margin-top: 40px; }
       section.below > p.sub { color: var(--muted); max-width: 70ch; margin-top: 8px; }
       .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-top: 16px; }
@@ -225,10 +219,6 @@
             <div class="stat"><div class="v" id="stStrokes">0</div><div class="k">Strokes in genome</div></div>
           </div>
 
-          <div class="panel" style="margin-top:14px">
-            <h3>Lineage</h3>
-            <div class="lineage" id="lineage"></div>
-          </div>
         </div>
 
         <div>
@@ -268,7 +258,7 @@
           <h3>Fitness over generations</h3>
           <span class="chart-now" id="chartNow">Full history — every generation kept</span>
         </div>
-        <canvas id="chart" width="1080" height="520" aria-label="Chart of match percentage over all generations, from the start of the run to now"></canvas>
+        <canvas id="chart" aria-label="Chart of match percentage over all generations, from the start of the run to now"></canvas>
       </div>
       </div><!-- /viewStudio -->
 
@@ -280,8 +270,7 @@
         <p><strong>One brush, focused.</strong> The app uses a single brush throughout — the p5.brush <strong>marker</strong> brush at full pigment strength, solid and slightly textured, laid down opaquely so later strokes cover earlier ones like paint over paint. There is no medium or brush picker to distract from how that one brush behaves.</p>
         <p><strong>Brush size is bounded like a real brush — and evolution picks it.</strong> Stroke width is clamped to <strong>2.2%–5.5% of the canvas width</strong> (about 11–28&nbsp;px on the 512&nbsp;px display canvas) and stroke length to <strong>8%–28%</strong>. There is no size control: every stroke's width and length are genes, and mutation, new-stroke proposals and block-in strokes are all clamped to the same limits, so evolution settles on the sizes that score best. Nothing evolves smaller than a fine detail brush you could actually hold, and nothing grows wider or longer than a large flat brush — no pinprick dots, no canvas-wide smears.</p>
         <p><strong>Fitness.</strong> Fitness = pixel error <em>plus</em> an edge/gradient term. Each candidate is painted with p5.brush at 160&nbsp;px, downsampled to 96&nbsp;px, and those painted pixels are compared to the source. Pixel error alone rewards blur; the gradient term pays for strokes that land on edges and run along them.</p>
-        <p><strong>How evolution moves.</strong> Because every candidate costs a full p5.brush render, evolution hill-climbs: one challenger at a time, bred from the current best — mutate a few genes, re-aim a stroke at the worst-matching region, graft on a fresh stroke, occasionally splice in a lineage ancestor. The challenger replaces its parent only if its own render scores closer to the source.</p>
-        <p><strong>Lineage.</strong> Snapshots of the best genome so far — each thumbnail is captured from the fitness painting that earned its score. In the Studio, tap one to reseed evolution from that ancestor — interactive evolution, Karl Sims style.</p>
+        <p><strong>How evolution moves.</strong> Because every candidate costs a full p5.brush render, evolution hill-climbs: one challenger at a time, bred from the current best — mutate a few genes, re-aim a stroke at the worst-matching region, graft on a fresh stroke, occasionally splice in an earlier best genome. The challenger replaces its parent only if its own render scores closer to the source.</p>
         <p><strong>The fitness chart.</strong> The chart in the Studio keeps the <em>complete</em> history of the run — every generation from 0 to now, never a sliding window — plotted at full width so early block-in gains and later slow refinement are both visible.</p>
       </div>
 
@@ -609,14 +598,6 @@
       var b = state.blankScore || 0.55;
       return clamp((1 - Math.sqrt(score / b)) * 100, 0, 99.5);
     }
-    function captureThumb() {
-      // The eval canvas currently holds the p5.brush render that was
-      // just scored — capture the lineage thumbnail from it directly.
-      var c = document.createElement('canvas'); c.width = 96; c.height = 96;
-      c.getContext('2d').drawImage(evalCanvas, 0, 0, 96, 96);
-      return c;
-    }
-
     /* ---------------- stroke proposal & mutation ---------------- */
     function phaseScale() {
       // Strokes shrink only modestly as the run matures — the floor is
@@ -717,7 +698,7 @@
       } else if (roll < 0.88 && child.length > 50) {
         child.splice(randi(0, child.length - 1), 1);   // deletion mutation
       } else if (roll < 0.94 && state.snapshots.length > 0) {
-        // crossover: splice the reigning best with a lineage snapshot
+        // crossover: splice the reigning best with an earlier snapshot
         var other = state.snapshots[randi(0, state.snapshots.length - 1)].genome;
         var cut = randi(0, Math.min(child.length, other.length));
         var tail = cloneGenome(other.slice(cut, cut + (child.length - cut)));
@@ -813,10 +794,9 @@
       if (state.history.length > 20000) state.history.splice(0, state.history.length - 20000);
     }
     function pushSnapshot() {
-      state.snapshots.push({ genome: cloneGenome(state.best), score: state.bestScore, gen: state.gen, thumb: captureThumb() });
-      if (state.snapshots.length > 4) state.snapshots.splice(1, 1); // keep first + latest 3
+      state.snapshots.push({ genome: cloneGenome(state.best), score: state.bestScore, gen: state.gen });
+      if (state.snapshots.length > 4) state.snapshots.splice(1, 1); // keep first + latest 3 for crossover
       state.lastSnapGen = state.gen;
-      renderLineage();
     }
 
     /* ---------------- display render (chunked, same draw code) ----------------
@@ -867,7 +847,7 @@
       displayDirty = true;
     }
 
-    /* ---------------- UI: stats, chart, lineage ---------------- */
+    /* ---------------- UI: stats, chart ---------------- */
     function setEvoStatus(msg) {
       var s = el('evoStatus');
       if (s) s.textContent = msg;
@@ -885,26 +865,42 @@
     }
     function drawChart() {
       var c = el('chart'); if (!c) return;
+      // Size the backing store to the canvas's actual displayed size
+      // multiplied by devicePixelRatio, and draw in CSS-pixel
+      // coordinates. The old fixed 1080×520 backing store was stretched
+      // by CSS (width:100%, height:260px) to a different aspect ratio,
+      // which stretched the axis labels horizontally/vertically.
+      var rect = c.getBoundingClientRect();
+      var cssW = rect.width || c.clientWidth || 0;
+      var cssH = rect.height || c.clientHeight || 0;
+      if (cssW < 50 || cssH < 50) return; // hidden or not laid out yet
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var targetW = Math.round(cssW * dpr);
+      var targetH = Math.round(cssH * dpr);
+      if (c.width !== targetW || c.height !== targetH) { c.width = targetW; c.height = targetH; }
       var x = c.getContext('2d');
-      var W = c.width, H = c.height;
-      var padL = 52, padR = 14, padT = 14, padB = 34;
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var W = cssW, H = cssH;
+      var padL = 44, padR = 14, padT = 12, padB = 28;
       var plotW = W - padL - padR, plotH = H - padT - padB;
       x.clearRect(0, 0, W, H);
       var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
       var grid = dark ? '#3c3626' : '#d9cfb8';
       var labelCol = dark ? '#ab9d80' : '#6f6450';
-      x.font = '22px "IBM Plex Mono", monospace';
+      var accentCol = dark ? '#e08a4c' : '#b5501c';
+      x.font = '12px "IBM Plex Mono", monospace';
       x.fillStyle = labelCol; x.strokeStyle = grid; x.lineWidth = 1;
       // y axis: 0–100% match, labelled every 25%
       for (var pct = 0; pct <= 100; pct += 25) {
         var py = padT + plotH - (pct / 100) * plotH;
         x.beginPath(); x.moveTo(padL, py); x.lineTo(W - padR, py); x.stroke();
-        x.textAlign = 'right'; x.fillText(pct + '%', padL - 8, py + 7);
+        x.textAlign = 'right'; x.textBaseline = 'middle'; x.fillText(pct + '%', padL - 8, py);
       }
+      x.textBaseline = 'alphabetic';
       var nowEl = el('chartNow');
       if (state.history.length < 2) {
         if (nowEl) nowEl.innerHTML = 'Full history — every generation kept';
-        x.textAlign = 'left'; x.fillText('gen 0', padL, H - 10);
+        x.textAlign = 'left'; x.fillText('gen 0', padL, H - 8);
         return;
       }
       // x axis: full run, generation 0 → now (history is never windowed)
@@ -915,11 +911,29 @@
       var ticks = 4;
       for (var ti = 0; ti <= ticks; ti++) {
         var tg = Math.round(g0 + (g1 - g0) * ti / ticks);
-        x.fillText(String(tg), gx(tg), H - 10);
+        var tx = gx(tg);
+        // keep the first/last labels inside the canvas
+        if (ti === 0) x.textAlign = 'left';
+        else if (ti === ticks) x.textAlign = 'right';
+        else x.textAlign = 'center';
+        x.fillText(String(tg), tx, H - 8);
       }
+      x.textAlign = 'left';
       // filled area + line over the complete history; decimate only
       // the drawing (not the data) when there are very many points
       var step = Math.max(1, Math.floor(state.history.length / plotW));
+      var tail = state.history[state.history.length - 1];
+      // area fill (separate path so the stroke isn't distorted by closing)
+      x.beginPath();
+      var startedF = false;
+      for (var fi = 0; fi < state.history.length; fi += step) {
+        var fh = state.history[fi];
+        if (!startedF) { x.moveTo(gx(fh.g), gy(fh.v)); startedF = true; } else x.lineTo(gx(fh.g), gy(fh.v));
+      }
+      x.lineTo(gx(tail.g), gy(tail.v));
+      x.lineTo(gx(tail.g), padT + plotH); x.lineTo(gx(state.history[0].g), padT + plotH); x.closePath();
+      x.fillStyle = dark ? 'rgba(224,138,76,.14)' : 'rgba(181,80,28,.10)'; x.fill();
+      // line
       x.beginPath();
       var started = false, lastPx = 0, lastPy = 0;
       for (var i = 0; i < state.history.length; i += step) {
@@ -927,45 +941,13 @@
         lastPx = gx(h.g); lastPy = gy(h.v);
         if (!started) { x.moveTo(lastPx, lastPy); started = true; } else x.lineTo(lastPx, lastPy);
       }
-      var tail = state.history[state.history.length - 1];
       x.lineTo(gx(tail.g), gy(tail.v));
-      x.strokeStyle = dark ? '#e08a4c' : '#b5501c'; x.lineWidth = 3; x.stroke();
-      x.lineTo(gx(tail.g), padT + plotH); x.lineTo(gx(state.history[0].g), padT + plotH); x.closePath();
-      x.fillStyle = dark ? 'rgba(224,138,76,.14)' : 'rgba(181,80,28,.10)'; x.fill();
+      x.strokeStyle = accentCol; x.lineWidth = 2; x.lineJoin = 'round'; x.lineCap = 'round'; x.stroke();
       // current point
-      x.beginPath(); x.arc(gx(tail.g), gy(tail.v), 5, 0, Math.PI * 2);
-      x.fillStyle = dark ? '#e08a4c' : '#b5501c'; x.fill();
+      x.beginPath(); x.arc(gx(tail.g), gy(tail.v), 4, 0, Math.PI * 2);
+      x.fillStyle = accentCol; x.fill();
       if (nowEl) nowEl.innerHTML = 'Gen <strong>' + tail.g.toLocaleString() + '</strong> · match <strong>' + tail.v.toFixed(1) + '%</strong> · ' + state.history.length.toLocaleString() + ' generations kept';
     }
-    function renderLineage() {
-      var box = el('lineage'); box.innerHTML = '';
-      state.snapshots.forEach(function (snap) {
-        var wrap = document.createElement('div');
-        var b = document.createElement('button');
-        b.type = 'button';
-        b.title = 'Reseed from generation ' + snap.gen;
-        b.setAttribute('aria-label', 'Reseed evolution from generation ' + snap.gen + ' snapshot');
-        var cv = document.createElement('canvas'); cv.width = 96; cv.height = 96;
-        if (snap.thumb) cv.getContext('2d').drawImage(snap.thumb, 0, 0, 96, 96);
-        b.appendChild(cv);
-        b.addEventListener('click', function () {
-          if (!brushReady) return;
-          cancelDisplayRender();
-          state.best = cloneGenome(snap.genome);
-          state.bestScore = evaluate(state.best);
-          state.stagnantGens = 0;
-          displayDirty = true;
-          startDisplayRender();
-          updateStats();
-        });
-        var lab = document.createElement('div');
-        lab.className = 'lf';
-        lab.textContent = 'gen ' + snap.gen + ' · ' + matchPct(snap.score).toFixed(0) + '%';
-        wrap.appendChild(b); wrap.appendChild(lab);
-        box.appendChild(wrap);
-      });
-    }
-
     /* ---------------- main loop ---------------- */
     var lastStats = 0;
     function updateStatsThrottled() {
@@ -1010,7 +992,6 @@
       state.growthAdded = 0; state.growthBoostUntil = -1; state.growthBurstRemaining = 0;
       state.growthEvents = []; state.pendingGrowthAdds = 0; state.displayedGen = -1;
       evalMs = 0;
-      el('lineage').innerHTML = '';
       state.best = seedGenome();
       state.bestScore = evaluate(state.best);
       pushSnapshot();
@@ -1030,6 +1011,11 @@
       if (!info) { drawChart(); window.scrollTo(0, 0); }
       else window.scrollTo(0, 0);
     }
+    var chartResizeTimer = 0;
+    window.addEventListener('resize', function () {
+      if (chartResizeTimer) clearTimeout(chartResizeTimer);
+      chartResizeTimer = setTimeout(function () { drawChart(); }, 80);
+    });
     el('navStudio').addEventListener('click', function () { showView(false); });
     el('navInfo').addEventListener('click', function () { showView(true); });
     el('btnBackStudio').addEventListener('click', function () { showView(false); });
